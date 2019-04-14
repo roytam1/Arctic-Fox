@@ -11,7 +11,6 @@
 #include "mozilla/Alignment.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/BinarySearch.h"
-#include "mozilla/CheckedInt.h"
 #include "mozilla/MathAlgorithms.h"
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/Move.h"
@@ -384,16 +383,6 @@ protected:
   typename Alloc::ResultTypeProxy EnsureCapacity(size_type aCapacity,
                                                  size_type aElemSize);
 
-  // Extend the storage to accommodate aCount extra elements.
-  // @param aLength The current size of the array.
-  // @param aCount The number of elements to add.
-  // @param aElemSize The size of an array element.
-  // @return False if insufficient memory is available or the new length
-  //   would overflow; true otherwise.
-  typename Alloc::ResultTypeProxy ExtendCapacity(size_type aLength,
-                                                 size_type aCount,
-                                                 size_type aElemSize);
-
   // Resize the storage to the minimum required amount.
   // @param aElemSize  The size of an array element.
   // @param aElemAlign The alignment in bytes of an array element.
@@ -432,9 +421,8 @@ protected:
   // @param aCount the number of slots to insert
   // @param aElementSize the size of an array element.
   // @param aElemAlign the alignment in bytes of an array element.
-  typename Alloc::ResultTypeProxy
-  InsertSlotsAt(index_type aIndex, size_type aCount,
-                size_type aElementSize, size_t aElemAlign);
+  bool InsertSlotsAt(index_type aIndex, size_type aCount,
+                     size_type aElementSize, size_t aElemAlign);
 
 protected:
   template<class Allocator>
@@ -1290,7 +1278,6 @@ public:
   // @return A pointer to the newly inserted element, or null on OOM.
   elem_type* InsertElementAt(index_type aIndex)
   {
-    // Length() + 1 is guaranteed to not overflow, so EnsureCapacity is OK.
     if (!Alloc::Successful(this->EnsureCapacity(Length() + 1,
                                                 sizeof(elem_type)))) {
       return nullptr;
@@ -1305,7 +1292,6 @@ public:
   template<class Item>
   elem_type* InsertElementAt(index_type aIndex, Item&& aItem)
   {
-    // Length() + 1 is guaranteed to not overflow, so EnsureCapacity is OK.
     if (!Alloc::Successful(this->EnsureCapacity(Length() + 1,
                                                 sizeof(elem_type)))) {
       return nullptr;
@@ -1376,8 +1362,8 @@ public:
   template<class Item>
   elem_type* AppendElements(const Item* aArray, size_type aArrayLen)
   {
-    if (!Alloc::Successful(this->ExtendCapacity(
-      Length(), aArrayLen, sizeof(elem_type)))) {
+    if (!Alloc::Successful(this->EnsureCapacity(Length() + aArrayLen,
+                                                sizeof(elem_type)))) {
       return nullptr;
     }
     index_type len = Length();
@@ -1397,7 +1383,6 @@ public:
   template<class Item>
   elem_type* AppendElement(Item&& aItem)
   {
-    // Length() + 1 is guaranteed to not overflow, so EnsureCapacity is OK.
     if (!Alloc::Successful(this->EnsureCapacity(Length() + 1,
                                                 sizeof(elem_type)))) {
       return nullptr;
@@ -1413,8 +1398,8 @@ public:
   // @return A pointer to the newly appended elements, or null on OOM.
   elem_type* AppendElements(size_type aCount)
   {
-    if (!Alloc::Successful(this->ExtendCapacity(
-       Length(), aCount, sizeof(elem_type)))) {
+    if (!Alloc::Successful(this->EnsureCapacity(Length() + aCount,
+                                                sizeof(elem_type)))) {
       return nullptr;
     }
     elem_type* elems = Elements() + Length();
@@ -1606,8 +1591,8 @@ public:
   // @param aCount the number of elements to insert
   elem_type* InsertElementsAt(index_type aIndex, size_type aCount)
   {
-    if (!Alloc::Successful(this->template InsertSlotsAt(
-          aIndex, aCount, sizeof(elem_type), MOZ_ALIGNOF(elem_type)))) {
+    if (!base_type::InsertSlotsAt(aIndex, aCount, sizeof(elem_type),
+                                  MOZ_ALIGNOF(elem_type))) {
       return nullptr;
     }
 
@@ -1632,8 +1617,8 @@ public:
   elem_type* InsertElementsAt(index_type aIndex, size_type aCount,
                               const Item& aItem)
   {
-    if (!Alloc::Successful(this->template InsertSlotsAt(
-        aIndex, aCount, sizeof(elem_type), MOZ_ALIGNOF(elem_type)))) {
+    if (!base_type::InsertSlotsAt(aIndex, aCount, sizeof(elem_type),
+                                  MOZ_ALIGNOF(elem_type))) {
       return nullptr;
     }
 
