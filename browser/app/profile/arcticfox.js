@@ -772,9 +772,6 @@ pref("browser.sessionstore.resume_session_once", false);
 
 // minimal interval between two save operations in milliseconds
 pref("browser.sessionstore.interval", 15000);
-// maximum amount of POSTDATA to be saved in bytes per history entry (-1 = all of it)
-// (NB: POSTDATA will be saved either entirely or not at all)
-pref("browser.sessionstore.postdata", 0);
 // on which sites to save text data, POSTDATA and cookies
 // 0 = everywhere, 1 = unencrypted sites, 2 = nowhere
 pref("browser.sessionstore.privacy_level", 0);
@@ -788,6 +785,10 @@ pref("browser.sessionstore.max_windows_undo", 3);
 // number of crashes that can occur before the about:sessionrestore page is displayed
 // (this pref has no effect if more than 6 hours have passed since the last crash)
 pref("browser.sessionstore.max_resumed_crashes", 1);
+// number of back button session history entries to restore (-1 = all of them)
+pref("browser.sessionstore.max_serialize_back", 10);
+// number of forward button session history entries to restore (-1 = all of them)
+pref("browser.sessionstore.max_serialize_forward", -1);
 // restore_on_demand overrides browser.sessionstore.max_concurrent_tabs
 // and restore_hidden_tabs. When true, tabs will not be restored until they are
 // focused (also applies to tabs that aren't visible). When false, the values

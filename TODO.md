@@ -117,7 +117,7 @@
 - Bug 1135903 - 2015-03-25 - OdinMonkey: Make signal-handler OOB checking an indepen…
 - Bug 1073379, 2015-03-06 part 7 - Tests for the effect of setting a CSS transitio
 - Bug 1113431 - Propagate referrer policy throughout the UI: command-cl
-- Bug 943339 - 2014-02-07 - Part 1: Only store a subset of session history entries t
+
 
 Require check of JS browser components:
 
@@ -128,14 +128,27 @@ Require check of JS browser components:
 - Bug 1031264 - 2014-12-10 - make opening links in new {tabs,windows} honor rel
 - Bug 1059007 - 2014-11-24 - Don't skip MozStorageChanged event for frames in s
 - Bug 1087356 - 2014-10-22 -  make e10s/non-e10s window options appear when no windows
-- Bug 897253 - 2013-07-24 - Remove support for calling nsISessionStore.init() with a
-- Bug 867143 - 2013-07-23 - Cache Session Restore state aggressively.
-- Bug 891360 - 2013-07-12 - Move SessionStore I/O logic to a dedicated worker
+- Bug 963042 - Added event listener for SwapDocShells to ensure we save
+
+2014-09
+Bug 1020831 - Make SessionStore.jsm and SessionFile.jsm share the sam
+Bug 1072814 - Fix SessionFile.jsm to use new Promise() API r=yoric
+
+https://github.com/mozilla/newtab-dev/commit/a0a0c45963092657a7eb7d8fee359786378cefbe#diff-0c6e8f7d648e858c3fe08a2b4802c3a0
+
+TabState.dropPendingCollections ?
+And check for PrivacyFilter.jsm !!!
+
+https://github.com/mozilla/newtab-dev/commits/c8c41d6efeff05c6a0a31030abd9baa0defccde2/browser/components/sessionstore/src/SessionStore.jsm
+(from 938248)
+
+Check here:
+https://github.com/mozilla/newtab-dev/tree/dfb8d4ea04fc32bf71d5d175899c345907e6793c/browser/components/sessionstore/src
 
 Parents of:
 
 https://github.com/mozilla/newtab-dev/commit/8bb15120a98ea5838ce19e97ae5c685d9bbf3f04
-https://github.com/mozilla/newtab-dev/commit/59ccb9a8108d73cf3a2766568b0b4f6441e763e0
+https://github.com/mozilla/newtab-dev/commit/5ee3e2e6f9368b74d80263fb490fed29ad0a1ea9
 
 To verify:
 - Bug 1133140 - Move runtime heap size limit checks up to GCIfNeeded;

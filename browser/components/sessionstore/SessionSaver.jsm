@@ -15,11 +15,16 @@ Cu.import("resource://gre/modules/Services.jsm", this);
 Cu.import("resource://gre/modules/XPCOMUtils.jsm", this);
 Cu.import("resource://gre/modules/TelemetryStopwatch.jsm", this);
 
+XPCOMUtils.defineLazyModuleGetter(this, "console",
+  "resource://gre/modules/devtools/Console.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "PrivacyFilter",
+  "resource:///modules/sessionstore/PrivacyFilter.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "SessionStore",
   "resource:///modules/sessionstore/SessionStore.jsm");
-
-XPCOMUtils.defineLazyModuleGetter(this, "_SessionFile",
-  "resource:///modules/sessionstore/_SessionFile.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "SessionFile",
+  "resource:///modules/sessionstore/SessionFile.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "PrivateBrowsingUtils",
+  "resource://gre/modules/PrivateBrowsingUtils.jsm");
 
 // Minimal interval between two save operations (in milliseconds).
 XPCOMUtils.defineLazyGetter(this, "gInterval", function () {
@@ -37,14 +42,6 @@ XPCOMUtils.defineLazyGetter(this, "gInterval", function () {
 
   return Services.prefs.getIntPref(PREF);
 });
-
-// Wrap a string as a nsISupports.
-function createSupportsString(data) {
-  let string = Cc["@mozilla.org/supports-string;1"]
-                 .createInstance(Ci.nsISupportsString);
-  string.data = data;
-  return string;
-}
 
 // Notify observers about a given topic with a given subject.
 function notify(subject, topic) {
@@ -72,7 +69,7 @@ this.SessionSaver = Object.freeze({
    * Immediately saves the current session to disk.
    */
   run: function () {
-    SessionSaverInternal.run();
+    return SessionSaverInternal.run();
   },
 
   /**
@@ -129,7 +126,7 @@ let SessionSaverInternal = {
    * Immediately saves the current session to disk.
    */
   run: function () {
-    this._saveState(true /* force-update all windows */);
+    return this._saveState(true /* force-update all windows */);
   },
 
   /**
@@ -151,7 +148,7 @@ let SessionSaverInternal = {
     delay = Math.max(this._lastSaveTime + gInterval - Date.now(), delay, 0);
 
     // Schedule a state save.
-    this._timeoutID = setTimeout(() => this._saveState(), delay);
+    this._timeoutID = setTimeout(() => this._saveStateAsync(), delay);
   },
 
   /**
@@ -186,42 +183,27 @@ let SessionSaverInternal = {
    *        update the corresponding caches.
    */
   _saveState: function (forceUpdateAllWindows = false) {
-    // Cancel any pending timeouts or just clear
-    // the timeout if this is why we've been called.
+    // Cancel any pending timeouts.
     this.cancel();
 
+    if (PrivateBrowsingUtils.permanentPrivateBrowsing) {
+      // Don't save (or even collect) anything in permanent private
+      // browsing mode
+
+      this.updateLastSaveTime();
+      return Promise.resolve();
+    }
+
     stopWatchStart("COLLECT_DATA_MS", "COLLECT_DATA_LONGEST_OP_MS");
-
     let state = SessionStore.getCurrentState(forceUpdateAllWindows);
-    if (!state) {
-      stopWatchCancel("COLLECT_DATA_MS", "COLLECT_DATA_LONGEST_OP_MS");
-      return;
-    }
 
-    // Forget about private windows.
-    for (let i = state.windows.length - 1; i >= 0; i--) {
-      if (state.windows[i].isPrivate) {
-        state.windows.splice(i, 1);
-        if (state.selectedWindow >= i) {
-          state.selectedWindow--;
-        }
-      }
-    }
+    PrivacyFilter.filterPrivateWindowsAndTabs(state);
 
-#ifndef XP_MACOSX
-    // Don't save invalid states.
-    // Looks like we currently have private windows, only.
-    if (state.windows.length == 0) {
-      stopWatchCancel("COLLECT_DATA_MS", "COLLECT_DATA_LONGEST_OP_MS");
-      return;
-    }
-#endif
-
-    // Remove private windows from the list of closed windows.
-    for (let i = state._closedWindows.length - 1; i >= 0; i--) {
-      if (state._closedWindows[i].isPrivate) {
-        state._closedWindows.splice(i, 1);
-      }
+    // Make sure that we keep the previous session if we started with a single
+    // private window and no non-private windows have been opened, yet.
+    if (state.deferredInitialState) {
+      state.windows = state.deferredInitialState.windows || [];
+      delete state.deferredInitialState;
     }
 
 #ifndef XP_MACOSX
@@ -243,41 +225,51 @@ let SessionSaverInternal = {
 #endif
 
     stopWatchFinish("COLLECT_DATA_MS", "COLLECT_DATA_LONGEST_OP_MS");
-    this._writeState(state);
+    return this._writeState(state);
+  },
+
+  /**
+   * Saves the current session state. Collects data asynchronously and calls
+   * _saveState() to collect data again (with a cache hit rate of hopefully
+   * 100%) and write to disk afterwards.
+   */
+  _saveStateAsync: function () {
+    // Allow scheduling delayed saves again.
+    this._timeoutID = null;
+
+    // Write to disk.
+    this._saveState();
   },
 
   /**
    * Write the given state object to disk.
    */
   _writeState: function (state) {
-    stopWatchStart("SERIALIZE_DATA_MS", "SERIALIZE_DATA_LONGEST_OP_MS");
+    // Inform observers
+    notify(null, "sessionstore-state-write");
+
+    stopWatchStart("SERIALIZE_DATA_MS", "SERIALIZE_DATA_LONGEST_OP_MS", "WRITE_STATE_LONGEST_OP_MS");
     let data = JSON.stringify(state);
     stopWatchFinish("SERIALIZE_DATA_MS", "SERIALIZE_DATA_LONGEST_OP_MS");
 
-    // Give observers a chance to modify session data.
-    data = this._notifyObserversBeforeStateWrite(data);
-
-    // Don't touch the file if an observer has deleted all state data.
-    if (!data) {
-      return;
-    }
+    // We update the time stamp before writing so that we don't write again
+    // too soon, if saving is requested before the write completes. Without
+    // this update we may save repeatedly if actions cause a runDelayed
+    // before writing has completed. See Bug 902280
+    this.updateLastSaveTime();
 
     // Write (atomically) to a session file, using a tmp file. Once the session
     // file is successfully updated, save the time stamp of the last save and
     // notify the observers.
-    _SessionFile.write(data).then(() => {
+    stopWatchStart("SEND_SERIALIZED_STATE_LONGEST_OP_MS");
+    let promise = SessionFile.write(data);
+    stopWatchFinish("WRITE_STATE_LONGEST_OP_MS",
+                    "SEND_SERIALIZED_STATE_LONGEST_OP_MS");
+    promise = promise.then(() => {
       this.updateLastSaveTime();
       notify(null, "sessionstore-state-write-complete");
-    }, Cu.reportError);
-  },
+    }, console.error);
 
-  /**
-   * Notify sessionstore-state-write observer and give them a
-   * chance to modify session data before we'll write it to disk.
-   */
-  _notifyObserversBeforeStateWrite: function (data) {
-    let stateString = createSupportsString(data);
-    notify(stateString, "sessionstore-state-write");
-    return stateString.data;
-  }
+    return promise;
+  },
 };
