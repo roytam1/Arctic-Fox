@@ -1040,16 +1040,26 @@ let SessionStoreInternal = {
       winData._shouldRestore = true;
 #endif
 
-      // Save the window if it has multiple tabs or a single saveable tab and
-      // it's not private.
+      // Save non-private windows if they have at
+      // least one saveable tab or are the last window.
       if (!winData.isPrivate) {
         // Remove any open private tabs the window may contain.
         PrivacyFilter.filterPrivateTabs(winData);
 
-        let hasSingleTabToSave =
-          winData.tabs.length == 1 && this._shouldSaveTabState(winData.tabs[0]);
+        // Determine whether the window has any tabs worth saving.
+        let hasSaveableTabs = winData.tabs.some(this._shouldSaveTabState);
 
-        if (hasSingleTabToSave || winData.tabs.length > 1) {
+        // When closing windows one after the other until Firefox quits, we
+        // will move those closed in series back to the "open windows" bucket
+        // before writing to disk. If however there is only a single window
+        // with tabs we deem not worth saving then we might end up with a
+        // random closed or even a pop-up window re-opened. To prevent that
+        // we explicitly allow saving an "empty" window state.
+        let isLastWindow =
+          Object.keys(this._windows).length == 1 &&
+          !this._closedWindows.some(win => win._shouldRestore || false);
+
+        if (hasSaveableTabs || isLastWindow) {
           // we don't want to save the busy state
           delete winData.busy;
 
@@ -1167,7 +1177,6 @@ let SessionStoreInternal = {
       Array.forEach(aWindow.gBrowser.tabs, function(aTab) {
         delete aTab.linkedBrowser.__SS_data;
         delete aTab.linkedBrowser.__SS_tabStillLoading;
-        delete aTab.linkedBrowser.__SS_formDataSaved;
         if (aTab.linkedBrowser.__SS_restoreState)
           this._resetTabRestoringState(aTab);
       }, this);
@@ -1302,7 +1311,6 @@ let SessionStoreInternal = {
     let browser = aTab.linkedBrowser;
     delete browser.__SS_data;
     delete browser.__SS_tabStillLoading;
-    delete browser.__SS_formDataSaved;
 
     // If this tab was in the middle of restoring or still needs to be restored,
     // we need to reset that state. If the tab was restoring, we will attempt to
@@ -1376,11 +1384,7 @@ let SessionStoreInternal = {
    *        Browser reference
    */
   onTabInput: function ssi_onTabInput(aWindow, aBrowser) {
-    // deleting __SS_formDataSaved will cause us to recollect form data
-    delete aBrowser.__SS_formDataSaved;
-
     TabStateCache.delete(aBrowser);
-
     this.saveStateDelayed(aWindow);
   },
 
@@ -1556,6 +1560,10 @@ let SessionStoreInternal = {
       throw (Components.returnCode = Cr.NS_ERROR_INVALID_ARG);
     }
 
+    if (aTab.linkedBrowser.__SS_restoreState) {
+      this._resetTabRestoringState(aTab);
+    }
+
     this._setWindowStateBusy(window);
     this.restoreTabs(window, [aTab], [tabState], 0);
   },
@@ -1703,6 +1711,9 @@ let SessionStoreInternal = {
   },
 
   setWindowValue: function ssi_setWindowValue(aWindow, aKey, aStringValue) {
+    if (typeof aStringValue != "string") {
+      throw new TypeError("setWindowValue only accepts string values");
+    }
     if (aWindow.__SSi) {
       if (!this._windows[aWindow.__SSi].extData) {
         this._windows[aWindow.__SSi].extData = {};
@@ -1735,7 +1746,10 @@ let SessionStoreInternal = {
   },
 
   setTabValue: function ssi_setTabValue(aTab, aKey, aStringValue) {
-    TabStateCache.delete(aTab);
+    if (typeof aStringValue != "string") {
+      throw new TypeError("setTabValue only accepts string values");
+    }
+
     // If the tab hasn't been restored, then set the data there, otherwise we
     // could lose newly added data.
     let saveTo;
@@ -1749,12 +1763,13 @@ let SessionStoreInternal = {
       aTab.__SS_extdata = {};
       saveTo = aTab.__SS_extdata;
     }
+
     saveTo[aKey] = aStringValue;
+    TabStateCache.updateField(aTab, "extData", saveTo);
     this.saveStateDelayed(aTab.ownerDocument.defaultView);
   },
 
   deleteTabValue: function ssi_deleteTabValue(aTab, aKey) {
-    TabStateCache.delete(aTab);
     // We want to make sure that if data is accessed early, we attempt to delete
     // that data from __SS_data as well. Otherwise we'll throw in cases where
     // data can be set or read.
@@ -1766,9 +1781,19 @@ let SessionStoreInternal = {
       deleteFrom = aTab.linkedBrowser.__SS_data.extData;
     }
 
-    if (deleteFrom && deleteFrom[aKey])
+    if (deleteFrom && aKey in deleteFrom) {
       delete deleteFrom[aKey];
-    this.saveStateDelayed(aTab.ownerDocument.defaultView);
+
+      // Keep the extData object only if it is not empty, to save
+      // a little disk space when serializing the tab state later.
+      if (Object.keys(deleteFrom).length) {
+        TabStateCache.updateField(aTab, "extData", deleteFrom);
+      } else {
+        TabStateCache.removeField(aTab, "extData");
+      }
+
+      this.saveStateDelayed(aTab.ownerDocument.defaultView);
+    }
   },
 
   getGlobalValue: function ssi_getGlobalValue(aKey) {
@@ -1776,6 +1801,10 @@ let SessionStoreInternal = {
   },
 
   setGlobalValue: function ssi_setGlobalValue(aKey, aStringValue) {
+    if (typeof aStringValue != "string") {
+      throw new TypeError("setGlobalValue only accepts string values");
+    }
+
     this._globalState.set(aKey, aStringValue);
     this.saveStateDelayed();
   },
@@ -2002,6 +2031,7 @@ let SessionStoreInternal = {
 
     var activeWindow = this._getMostRecentBrowserWindow();
 
+    TelemetryStopwatch.start("FX_SESSION_RESTORE_COLLECT_ALL_WINDOWS_DATA_MS");
     if (this._loadState == STATE_RUNNING) {
       // update the data for all windows with activities since the last save operation
       this._forEachBrowserWindow(function(aWindow) {
@@ -2016,6 +2046,7 @@ let SessionStoreInternal = {
       });
       DirtyWindows.clear();
     }
+    TelemetryStopwatch.finish("FX_SESSION_RESTORE_COLLECT_ALL_WINDOWS_DATA_MS");
 
     // An array that at the end will hold all current window data.
     var total = [];
@@ -2034,7 +2065,10 @@ let SessionStoreInternal = {
       if (!this._windows[ix].isPopup)
         nonPopupCount++;
     }
+
+    TelemetryStopwatch.start("FX_SESSION_RESTORE_COLLECT_COOKIES_MS");
     SessionCookies.update(total);
+    TelemetryStopwatch.finish("FX_SESSION_RESTORE_COLLECT_COOKIES_MS");
 
     // collect the data for all windows yet to be restored
     for (ix in this._statesToRestore) {
@@ -2081,7 +2115,7 @@ let SessionStoreInternal = {
     };
 
     // get open Scratchpad window states too
-    var scratchpads = ScratchpadManager.getSessionState();
+    let scratchpads = ScratchpadManager.getSessionState();
 
     let state = {
       windows: total,
@@ -2129,6 +2163,7 @@ let SessionStoreInternal = {
   _collectWindowData: function ssi_collectWindowData(aWindow) {
     if (!this._isWindowLoaded(aWindow))
       return;
+    TelemetryStopwatch.start("FX_SESSION_RESTORE_COLLECT_SINGLE_WINDOW_DATA_MS");
 
     let tabbrowser = aWindow.gBrowser;
     let tabs = tabbrowser.tabs;
@@ -2150,6 +2185,7 @@ let SessionStoreInternal = {
         aWindow.__SS_lastSessionWindowID;
 
     DirtyWindows.remove(aWindow);
+    TelemetryStopwatch.finish("FX_SESSION_RESTORE_COLLECT_SINGLE_WINDOW_DATA_MS");
   },
 
   /* ........ Restoring Functionality .............. */
@@ -2244,6 +2280,13 @@ let SessionStoreInternal = {
         tabbrowser.unpinTab(tabbrowser.tabs[t]);
     }
 
+    // We need to keep track of the initially open tabs so that they
+    // can be moved to the end of the restored tabs.
+    let initialTabs = [];
+    if (!overwriteTabs && firstWindow) {
+      initialTabs = Array.slice(tabbrowser.tabs);
+    }
+
     // make sure that the selected tab won't be closed in order to
     // prevent unnecessary flickering
     if (overwriteTabs && tabbrowser.selectedTab._tPos >= newTabCount)
@@ -2255,10 +2298,6 @@ let SessionStoreInternal = {
       tabs.push(t < openTabCount ?
                 tabbrowser.tabs[t] :
                 tabbrowser.addTab("about:blank", {skipAnimation: true}));
-      // when resuming at startup: add additionally requested pages to the end
-      if (!overwriteTabs && firstWindow) {
-        tabbrowser.moveTabTo(tabs[t], t);
-      }
 
       if (winData.tabs[t].pinned)
         tabbrowser.pinTab(tabs[t]);
@@ -2269,6 +2308,14 @@ let SessionStoreInternal = {
       else {
         tabbrowser.showTab(tabs[t]);
         numVisibleTabs++;
+      }
+    }
+
+    if (!overwriteTabs && firstWindow) {
+      // Move the originally open tabs to the end
+      let endPosition = tabbrowser.tabs.length - 1;
+      for (let i = 0; i < initialTabs.length; i++) {
+        tabbrowser.moveTabTo(initialTabs[i], endPosition);
       }
     }
 
@@ -2555,6 +2602,12 @@ let SessionStoreInternal = {
         continue;
       }
 
+      // In electrolysis, we may need to change the browser's remote
+      // attribute so that it runs in a content process.
+      let activePageData = tabData.entries[activeIndex] || null;
+      let uri = activePageData ? activePageData.url || null : null;
+      tabbrowser.updateBrowserRemoteness(browser, uri);
+
       browser.messageManager.sendAsyncMessage("SessionStore:restoreHistory",
                                               {tabData: tabData, epoch: epoch});
 
@@ -2734,7 +2787,11 @@ let SessionStoreInternal = {
 
     // only modify those aspects which aren't correct yet
     if (aWidth && aHeight && (aWidth != win_("width") || aHeight != win_("height"))) {
-      aWindow.resizeTo(aWidth, aHeight);
+      // Don't resize the window if it's currently maximized and we would
+      // maximize it again shortly after.
+      if (aSizeMode != "maximized" || win_("sizemode") != "maximized") {
+        aWindow.resizeTo(aWidth, aHeight);
+      }
     }
     if (!isNaN(aLeft) && !isNaN(aTop) && (aLeft != win_("screenX") || aTop != win_("screenY"))) {
       aWindow.moveTo(aLeft, aTop);
