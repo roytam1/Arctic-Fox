@@ -663,13 +663,6 @@ var gBrowserInit = {
   onLoad: function() {
     var mustLoadSidebar = false;
 
-    if (!gMultiProcessBrowser) {
-      // There is a Content:Click message manually sent from content.
-      Cc["@mozilla.org/eventlistenerservice;1"]
-        .getService(Ci.nsIEventListenerService)
-        .addSystemEventListener(gBrowser, "click", contentAreaClick, true);
-    }
-
     gBrowser.addEventListener("DOMUpdatePageReport", gPopupBlockerObserver, false);
 
     // Note that the XBL binding is untrusted
@@ -689,7 +682,8 @@ var gBrowserInit = {
     // the listener is registered.
     DevEdition.init();
     
-    messageManager.loadFrameScript("chrome://browser/content/content.js", true);
+    let mm = window.getGroupMessageManager("browsers");
+    mm.loadFrameScript("chrome://browser/content/content.js", true);
 
     // initialize observers and listeners
     // and give C++ access to gBrowser
@@ -735,6 +729,15 @@ var gBrowserInit = {
       gBrowser.docShell.useGlobalHistory = true;
     } catch(ex) {
       Cu.reportError("Places database may be locked: " + ex);
+    }
+
+    if (!gMultiProcessBrowser) {
+      // There is a Content:Click message manually sent from content.
+      Cc["@mozilla.org/eventlistenerservice;1"]
+        .getService(Ci.nsIEventListenerService)
+        .addSystemEventListener(gBrowser, "click", contentAreaClick, true);
+    } else {
+      gBrowser.updateBrowserRemoteness(gBrowser.mCurrentBrowser, true);
     }
 
     // hook up UI through progress listener
@@ -808,9 +811,11 @@ var gBrowserInit = {
       }
     }
 
-    // Certain kinds of automigration rely on this notification to complete their
-    // tasks BEFORE the browser window is shown.
-    Services.obs.notifyObservers(null, "browser-window-before-show", "");
+    // Certain kinds of automigration rely on this notification to complete
+    // their tasks BEFORE the browser window is shown. SessionStore uses it to
+    // restore tabs into windows AFTER important parts like gMultiProcessBrowser
+    // have been initialized.
+    Services.obs.notifyObservers(window, "browser-window-before-show", "");
 
     // Set a sane starting width/height for all resolutions on new profiles.
     if (!document.documentElement.hasAttribute("width")) {
@@ -2440,7 +2445,7 @@ function getWebNavigation()
 
 function BrowserReloadWithFlags(reloadFlags) {
   let url = gBrowser.currentURI.spec;
-  if (gBrowser.updateBrowserRemoteness(gBrowser.selectedBrowser, url)) {
+  if (gBrowser.updateBrowserRemotenessByURL(gBrowser.selectedBrowser, url)) {
     // If the remoteness has changed, the new browser doesn't have any
     // information of what was loaded before, so we need to load the previous
     // URL again.

@@ -2,6 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+"use strict";
+
 /**
  * Session Storage and Restoration
  *
@@ -83,6 +85,8 @@ SessionStartup.prototype = {
    * Initialize the component
    */
   init: function sss_init() {
+    Services.obs.notifyObservers(null, "sessionstore-init-started", null);
+
     // do not need to initialize anything in auto-started private browsing sessions
     if (PrivateBrowsingUtils.permanentPrivateBrowsing) {
       this._initialized = true;
@@ -95,7 +99,8 @@ SessionStartup.prototype = {
       this._ensureInitialized();
     } else {
       SessionFile.read().then(
-        this._onSessionFileRead.bind(this)
+        this._onSessionFileRead.bind(this),
+	console.error
       );
     }
   },
@@ -149,8 +154,9 @@ SessionStartup.prototype = {
           Services.prefs.getIntPref("browser.startup.page") == BROWSER_STARTUP_RESUME_SESSION;
 
     // If this is a normal restore then throw away any previous session
-    if (!shouldResumeSessionOnce)
+    if (!shouldResumeSessionOnce && this._initialState) {
       delete this._initialState.lastSessionState;
+    }
 
     let resumeFromCrash = Services.prefs.getBoolPref("browser.sessionstore.resume_from_crash");
 
@@ -163,24 +169,31 @@ SessionStartup.prototype = {
         // If the Crash Monitor could not load a checkpoints file it will
         // provide null. This could occur on the first run after updating to
         // a version including the Crash Monitor, or if the checkpoints file
-        // was removed.
-        //
-        // If this is the first run after an update, sessionstore.js should
-        // still contain the session.state flag to indicate if the session
-        // crashed. If it is not present, we will assume this was not the first
-        // run after update and the checkpoints file was somehow corrupted or
-        // removed by a crash.
-        //
-        // If the session.state flag is present, we will fallback to using it
-        // for crash detection - If the last write of sessionstore.js had it
-        // set to "running", we crashed.
-        let stateFlagPresent = (this._initialState &&
-                                this._initialState.session &&
-                                this._initialState.session.state);
+        // was removed, or on first startup with this profile, or after Firefox Reset.
+
+        if (!this._initialState) {
+          // We have neither sessionstore.js nor a checkpoints file,
+          // assume that this is a first startup with the profile or after
+          // Firefox Reset.
+          this._previousSessionCrashed = false;
+
+        } else {
+          // If this is the first run after an update, sessionstore.js should
+          // still contain the session.state flag to indicate if the session
+          // crashed. If it is not present, we will assume this was not the first
+          // run after update and the checkpoints file was somehow corrupted or
+          // removed by a crash.
+          //
+          // If the session.state flag is present, we will fallback to using it
+          // for crash detection - If the last write of sessionstore.js had it
+          // set to "running", we crashed.
+          let stateFlagPresent = (this._initialState.session &&
+                                  this._initialState.session.state);
 
 
-        this._previousSessionCrashed = !stateFlagPresent ||
-                                       (this._initialState.session.state == STATE_RUNNING_STR);
+          this._previousSessionCrashed = !stateFlagPresent ||
+            (this._initialState.session.state == STATE_RUNNING_STR);
+        }
       }
 
       // Report shutdown success via telemetry. Shortcoming here are

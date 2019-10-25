@@ -34,7 +34,7 @@
             <xul:hbox flex="1" class="browserSidebarContainer">
               <xul:vbox flex="1" class="browserContainer">
                 <xul:stack flex="1" class="browserStack" anonid="browserStack">
-                  <xul:browser anonid="initialBrowser" type="content-primary" message="true" disablehistory="true"
+                  <xul:browser anonid="initialBrowser" type="content-primary" message="true" messagemanagergroup="browsers"
                                xbl:inherits="tooltip=contenttooltip,contextmenu=contentcontextmenu,autocompletepopup,selectpopup"/>
                 </xul:stack>
               </xul:vbox>
@@ -1350,16 +1350,13 @@
         ]]></body>
       </method>
 
-#ifdef MAKE_E10S_WORK
       <method name="updateBrowserRemoteness">
         <parameter name="aBrowser"/>
-        <parameter name="aURL"/>
+        <parameter name="aShouldBeRemote"/>
         <body>
           <![CDATA[
-            let shouldBeRemote = this._shouldBrowserBeRemote(aURL);
-
             let isRemote = aBrowser.getAttribute("remote") == "true";
-            if (isRemote == shouldBeRemote)
+            if (isRemote == aShouldBeRemote)
               return false;
 
             // Unhook our progress listener.
@@ -1371,18 +1368,30 @@
             // Change the "remote" attribute.
             let parent = aBrowser.parentNode;
             parent.removeChild(aBrowser);
-            aBrowser.setAttribute("remote", shouldBeRemote ? "true" : "false");
+            aBrowser.setAttribute("remote", aShouldBeRemote ? "true" : "false");
             parent.appendChild(aBrowser);
 
             // Restore the progress listener.
             aBrowser.webProgress.addProgressListener(filter, Ci.nsIWebProgress.NOTIFY_ALL);
 
-            if (shouldBeRemote)
+            if (aShouldBeRemote)
               tab.setAttribute("remote", "true");
             else
               tab.removeAttribute("remote");
 
             return true;
+          ]]>
+        </body>
+      </method>
+
+#ifdef MAKE_E10S_WORK
+      <method name="updateBrowserRemotenessByURL">
+        <parameter name="aBrowser"/>
+        <parameter name="aURL"/>
+        <body>
+          <![CDATA[
+            let shouldBeRemote = this._shouldBrowserBeRemote(aURL);
+            return this.updateBrowserRemoteness(aBrowser, shouldBeRemote);
           ]]>
         </body>
       </method>
@@ -1505,6 +1514,7 @@
                                              "browser");
             b.setAttribute("type", "content-targetable");
             b.setAttribute("message", "true");
+            b.setAttribute("messagemanagergroup", "browsers");
             b.setAttribute("contextmenu", this.getAttribute("contentcontextmenu"));
             b.setAttribute("tooltip", this.getAttribute("contenttooltip"));
 
@@ -2713,14 +2723,14 @@
         <body>
           <![CDATA[
 #ifdef MAKE_E10S_WORK
-            this.updateBrowserRemoteness(this.mCurrentBrowser, aURI);
+            this.updateBrowserRemotenessByURL(this.mCurrentBrowser, aURI);
             try {
 #endif
             return this.mCurrentBrowser.loadURI(aURI, aReferrerURI, aCharset);
 #ifdef MAKE_E10S_WORK
             } catch (e) {
               let url = this.mCurrentBrowser.currentURI.spec;
-              this.updateBrowserRemoteness(this.mCurrentBrowser, url);
+              this.updateBrowserRemotenessByURL(this.mCurrentBrowser, url);
             }
 #endif
           ]]>
@@ -2737,14 +2747,15 @@
         <body>
           <![CDATA[
 #ifdef MAKE_E10S_WORK
-            this.updateBrowserRemoteness(this.mCurrentBrowser, aURI);
+            this.updateBrowserRemotenessByURL(this.mCurrentBrowser, aURI);
             try {
 #endif
             return this.mCurrentBrowser.loadURIWithFlags(aURI, aFlags, aReferrerURI, aCharset, aPostData);
 #ifdef MAKE_E10S_WORK
             } catch (e) {
               let url = this.mCurrentBrowser.currentURI.spec;
-              this.updateBrowserRemoteness(this.mCurrentBrowser, url);
+              this.updateBrowserRemotenessByURL(this.mCurrentBrowser, url);
+	      throw e
             }
 #endif
           ]]>
@@ -3326,7 +3337,7 @@
           let title = browser.contentTitle;
           let uri = browser.currentURI;
 
-          this.updateBrowserRemoteness(browser, "about:tabcrashed");
+          this.updateBrowserRemotenessByURL(browser, "about:tabcrashed");
 
           browser.setAttribute("crashedPageTitle", title);
           browser.docShell.displayLoadError(Cr.NS_ERROR_CONTENT_CRASHED, uri, null);

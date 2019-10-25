@@ -111,10 +111,10 @@
 - Bug 1092102 - Rename Suspend/Resume to Freeze
 - Bug 1119878 Part 1: Change SandboxTarg
 - Bug 1151974
-- Bug 958147 - Choose one of run-if or skip-if 
 - Bug 1134518 - 2015-04-22 - Cap shistory entries in the SessionWorker when shutting
 - Bug 1038811 2015-04-11 Complete remaining
 - Bug 1135903 - 2015-03-25 - OdinMonkey: Make signal-handler OOB checking an indepen…
+- Bug 1140317 2015-03-10 Make sure chars created by DecompileValueGenerator won't
 - Bug 1073379, 2015-03-06 part 7 - Tests for the effect of setting a CSS transitio
 - Bug 1113431 - Propagate referrer policy throughout the UI: command-cl
 
@@ -128,7 +128,6 @@ Require check of JS browser components:
 - Bug 1031264 - 2014-12-10 - make opening links in new {tabs,windows} honor rel
 - Bug 1059007 - 2014-11-24 - Don't skip MozStorageChanged event for frames in s
 - Bug 1087356 - 2014-10-22 -  make e10s/non-e10s window options appear when no windows
-- Bug 963042 - Added event listener for SwapDocShells to ensure we save
 
 2014-09
 Bug 1020831 - Make SessionStore.jsm and SessionFile.jsm share the sam
@@ -136,19 +135,12 @@ Bug 1072814 - Fix SessionFile.jsm to use new Promise() API r=yoric
 
 https://github.com/mozilla/newtab-dev/commit/a0a0c45963092657a7eb7d8fee359786378cefbe#diff-0c6e8f7d648e858c3fe08a2b4802c3a0
 
-TabState.dropPendingCollections ?
-And check for PrivacyFilter.jsm !!!
-
-https://github.com/mozilla/newtab-dev/commits/c8c41d6efeff05c6a0a31030abd9baa0defccde2/browser/components/sessionstore/src/SessionStore.jsm
-(from 495123)
-
-Check here:
-https://github.com/mozilla/newtab-dev/tree/dfb8d4ea04fc32bf71d5d175899c345907e6793c/browser/components/sessionstore/src
+https://github.com/mozilla/newtab-dev/tree/8932974653ba03522b4f6fefdc4081bdb0356da1/browser/components/sessionstore/src
 
 Parents of:
 
 https://github.com/mozilla/newtab-dev/commit/8bb15120a98ea5838ce19e97ae5c685d9bbf3f04
-https://github.com/mozilla/newtab-dev/commit/5ee3e2e6f9368b74d80263fb490fed29ad0a1ea9
+https://github.com/mozilla/newtab-dev/commit/2050f9e190cfcb415d0fbf77cb559fe596a4cfa2
 
 To verify:
 - Bug 1133140 - Move runtime heap size limit checks up to GCIfNeeded;
@@ -173,7 +165,6 @@ no components/url-classifier ?
 
 - Update code to work with GCC 7 & GCC 8
 - Update UniquePtr
-- js/src/jscntxt.h  update ReportValueError to UniquePtr
 - in nsGlobalWindow remove from Open calls aCalleePrincipal and aJSCallerContext
 - inherit principal vs. inherit owner in DocShell see INTERNAL_LOAD_FLAGS_INHERIT_OWNER
 - update nsNullPrincipal (and nsDocShell Fixme's)
