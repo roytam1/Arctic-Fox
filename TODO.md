@@ -122,6 +122,7 @@
 
 Require check of JS browser components:
 
+- Bug 1169892 - Avoid extra round-trip when a pending tab is reloaded r
 - Bug 1133201 - part 2 - don't send referrer information when opening new windows via context menu; r=Gijs,mconley
 - Bug 1118502 - part 2 - ensure addOneTab sees a referrer URI if it was
 - Bug 1135913 - 4 parts
@@ -130,15 +131,11 @@ Require check of JS browser components:
 - Bug 1059007 - 2014-11-24 - Don't skip MozStorageChanged event for frames in s
 - Bug 1087356 - 2014-10-22 -  make e10s/non-e10s window options appear when no windows
 
-2014-09
-Bug 1020831 - Make SessionStore.jsm and SessionFile.jsm share the sam
-Bug 1072814 - Fix SessionFile.jsm to use new Promise() API r=yoric
-
 
 Parents of:
 
 https://github.com/mozilla/newtab-dev/commit/8bb15120a98ea5838ce19e97ae5c685d9bbf3f04
-https://github.com/mozilla/newtab-dev/commit/bd4d2c42d2b4c5a952231e7495298556af090a07
+https://github.com/mozilla/newtab-dev/commit/a4099ba4c5867b9735dbacfbc5c9fe0629e0a145
 
 To verify:
 - Bug 1133140 - Move runtime heap size limit checks up to GCIfNeeded;
