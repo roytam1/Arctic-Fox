@@ -9,11 +9,18 @@ let Cu = Components.utils;
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource:///modules/RecentWindow.jsm");
 
+XPCOMUtils.defineLazyModuleGetter(this, "E10SUtils",
+                                  "resource:///modules/E10SUtils.jsm");
+
 XPCOMUtils.defineLazyModuleGetter(this, "CharsetMenu",
                                   "resource:///modules/CharsetMenu.jsm");
 
 XPCOMUtils.defineLazyModuleGetter(this, "Task",
                                   "resource://gre/modules/Task.jsm");
+
+XPCOMUtils.defineLazyServiceGetter(this, "gDNSService",
+                                   "@mozilla.org/network/dns-service;1",
+                                   "nsIDNSService");
 
 const nsIWebNavigation = Ci.nsIWebNavigation;
 const gToolbarInfoSeparators = ["|", "-"];
@@ -146,6 +153,9 @@ XPCOMUtils.defineLazyModuleGetter(this, "TabCrashReporter",
 
 XPCOMUtils.defineLazyModuleGetter(this, "SessionStore",
   "resource:///modules/sessionstore/SessionStore.jsm");
+
+XPCOMUtils.defineLazyModuleGetter(this, "TabState",
+  "resource:///modules/sessionstore/TabState.jsm");
 
 let gInitialPages = [
   "about:blank",
@@ -659,6 +669,172 @@ var gPopupBlockerObserver = {
   }
 };
 
+function gKeywordURIFixup({ target: browser, data: fixupInfo }) {
+  let deserializeURI = (spec) => spec ? makeURI(spec) : null;
+
+  // We get called irrespective of whether we did a keyword search, or
+  // whether the original input would be vaguely interpretable as a URL,
+  // so figure that out first.
+  let alternativeURI = deserializeURI(fixupInfo.fixedURI);
+  if (!fixupInfo.fixupUsedKeyword || !alternativeURI) {
+    return;
+  }
+
+  // At this point we're still only just about to load this URI.
+  // When the async DNS lookup comes back, we may be in any of these states:
+  // 1) still on the previous URI, waiting for the preferredURI (keyword
+  //    search) to respond;
+  // 2) at the keyword search URI (preferredURI)
+  // 3) at some other page because the user stopped navigation.
+  // We keep track of the currentURI to detect case (1) in the DNS lookup
+  // callback.
+  let previousURI = browser.currentURI;
+  let preferredURI = deserializeURI(fixupInfo.preferredURI);
+
+  // now swap for a weak ref so we don't hang on to browser needlessly
+  // even if the DNS query takes forever
+  let weakBrowser = Cu.getWeakReference(browser);
+  browser = null;
+
+  // Additionally, we need the host of the parsed url
+  let hostName = alternativeURI.host;
+  // and the ascii-only host for the pref:
+  let asciiHost = alternativeURI.asciiHost;
+
+  let onLookupComplete = (request, record, status) => {
+    let browser = weakBrowser.get();
+    if (!Components.isSuccessCode(status) || !browser)
+      return;
+
+    let currentURI = browser.currentURI;
+    // If we're in case (3) (see above), don't show an info bar.
+    if (!currentURI.equals(previousURI) &&
+        !currentURI.equals(preferredURI)) {
+      return;
+    }
+
+    // show infobar offering to visit the host
+    let notificationBox = gBrowser.getNotificationBox(browser);
+    if (notificationBox.getNotificationWithValue("keyword-uri-fixup"))
+      return;
+
+    let message = gNavigatorBundle.getFormattedString(
+      "keywordURIFixup.message", [hostName]);
+    let yesMessage = gNavigatorBundle.getFormattedString(
+      "keywordURIFixup.goTo", [hostName])
+
+    let buttons = [
+      {
+        label: yesMessage,
+        accessKey: gNavigatorBundle.getString("keywordURIFixup.goTo.accesskey"),
+        callback: function() {
+          // Do not set this preference while in private browsing.
+          if (!PrivateBrowsingUtils.isWindowPrivate(window)) {
+            let pref = "browser.fixup.domainwhitelist." + asciiHost;
+            Services.prefs.setBoolPref(pref, true);
+          }
+          openUILinkIn(alternativeURI.spec, "current");
+        }
+      },
+      {
+        label: gNavigatorBundle.getString("keywordURIFixup.dismiss"),
+        accessKey: gNavigatorBundle.getString("keywordURIFixup.dismiss.accesskey"),
+        callback: function() {
+          let notification = notificationBox.getNotificationWithValue("keyword-uri-fixup");
+          notificationBox.removeNotification(notification, true);
+        }
+      }
+    ];
+    let notification =
+      notificationBox.appendNotification(message,"keyword-uri-fixup", null,
+                                         notificationBox.PRIORITY_INFO_HIGH,
+                                         buttons);
+    notification.persistence = 1;
+  };
+
+  gDNSService.asyncResolve(hostName, 0, onLookupComplete, Services.tm.mainThread);
+}
+
+// A shared function used by both remote and non-remote browser XBL bindings to
+// load a URI or redirect it to the correct process.
+function _loadURIWithFlags(browser, uri, flags, referrer, charset, postdata) {
+  if (!uri) {
+    uri = "about:blank";
+  }
+
+  if (!(flags & browser.webNavigation.LOAD_FLAGS_FROM_EXTERNAL)) {
+    browser.userTypedClear++;
+  }
+
+  let shouldBeRemote = gMultiProcessBrowser &&
+                       E10SUtils.shouldBrowserBeRemote(uri);
+  try {
+    if (browser.isRemoteBrowser == shouldBeRemote) {
+      browser.webNavigation.loadURI(uri, flags, referrer, postdata, null);
+    } else {
+      LoadInOtherProcess(browser, {
+        uri: uri,
+        flags: flags,
+        referrer: referrer ? referrer.spec : null,
+      });
+    }
+  } catch (e) {
+    // If anything goes wrong just switch remoteness manually and load the URI.
+    // We might lose history that way but at least the browser loaded a page.
+    // This might be necessary if SessionStore wasn't initialized yet i.e.
+    // when the homepage is a non-remote page.
+    gBrowser.updateBrowserRemoteness(browser, shouldBeRemote);
+    browser.webNavigation.loadURI(uri, flags, referrer, postdata, null);
+  } finally {
+    if (browser.userTypedClear) {
+      browser.userTypedClear--;
+    }
+  }
+}
+
+// Starts a new load in the browser first switching the browser to the correct
+// process
+function LoadInOtherProcess(browser, loadOptions, historyIndex = -1) {
+  let tab = gBrowser._getTabForBrowser(browser);
+  // Flush the tab state before getting it
+  TabState.flush(browser);
+  let tabState = JSON.parse(SessionStore.getTabState(tab));
+
+  if (historyIndex < 0) {
+    tabState.userTypedValue = null;
+    // Tell session history the new page to load
+    SessionStore._restoreTabAndLoad(tab, JSON.stringify(tabState), loadOptions);
+  }
+  else {
+    // Update the history state to point to the requested index
+    tabState.index = historyIndex + 1;
+    // SessionStore takes care of setting the browser remoteness before restoring
+    // history into it.
+    SessionStore.setTabState(tab, JSON.stringify(tabState));
+  }
+}
+
+// Called when a docshell has attempted to load a page in an incorrect process.
+// This function is responsible for loading the page in the correct process.
+function RedirectLoad({ target: browser, data }) {
+  // We should only start the redirection if the browser window has finished
+  // starting up. Otherwise, we should wait until the startup is done.
+  if (gBrowserInit.delayedStartupFinished) {
+    LoadInOtherProcess(browser, data.loadOptions, data.historyIndex);
+  } else {
+    let delayedStartupFinished = (subject, topic) => {
+      if (topic == "browser-delayed-startup-finished" &&
+          subject == window) {
+        Services.obs.removeObserver(delayedStartupFinished, topic);
+        LoadInOtherProcess(browser, data.loadOptions, data.historyIndex);
+      }
+    };
+    Services.obs.addObserver(delayedStartupFinished,
+                             "browser-delayed-startup-finished",
+                             false);
+  }
+}
+
 var gBrowserInit = {
   onLoad: function() {
     var mustLoadSidebar = false;
@@ -684,6 +860,8 @@ var gBrowserInit = {
     
     let mm = window.getGroupMessageManager("browsers");
     mm.loadFrameScript("chrome://browser/content/content.js", true);
+
+    window.messageManager.addMessageListener("Browser:LoadURI", RedirectLoad);
 
     // initialize observers and listeners
     // and give C++ access to gBrowser
@@ -737,7 +915,7 @@ var gBrowserInit = {
         .getService(Ci.nsIEventListenerService)
         .addSystemEventListener(gBrowser, "click", contentAreaClick, true);
     } else {
-      gBrowser.updateBrowserRemoteness(gBrowser.mCurrentBrowser, true);
+      gBrowser.updateBrowserRemoteness(gBrowser.selectedBrowser, true);
     }
 
     // hook up UI through progress listener
@@ -974,6 +1152,7 @@ var gBrowserInit = {
     Services.obs.addObserver(gXPInstallObserver, "addon-install-origin-blocked", false);
     Services.obs.addObserver(gXPInstallObserver, "addon-install-failed", false);
     Services.obs.addObserver(gXPInstallObserver, "addon-install-complete", false);
+    window.messageManager.addMessageListener("Browser:URIFixup", gKeywordURIFixup);
 
     gPrefService.addObserver(gURLBarSettings.prefSuggest, gURLBarSettings, false);
     gPrefService.addObserver(gURLBarSettings.prefKeyword, gURLBarSettings, false);
@@ -1219,8 +1398,6 @@ var gBrowserInit = {
       if ("TabView" in window) {
         TabView.init();
       }
-
-      setTimeout(function () { BrowserChromeTest.markAsReady(); }, 0);
     });
 
     Services.obs.notifyObservers(window, "browser-delayed-startup-finished", "");
@@ -1331,6 +1508,8 @@ var gBrowserInit = {
       Services.obs.removeObserver(gXPInstallObserver, "addon-install-origin-blocked");
       Services.obs.removeObserver(gXPInstallObserver, "addon-install-failed");
       Services.obs.removeObserver(gXPInstallObserver, "addon-install-complete");
+      window.messageManager.removeMessageListener("Browser:URIFixup", gKeywordURIFixup);
+      window.messageManager.removeMessageListener("Browser:LoadURI", RedirectLoad);
 
       try {
         gPrefService.removeObserver(gURLBarSettings.prefSuggest, gURLBarSettings);
@@ -1438,6 +1617,8 @@ var gBrowserInit = {
     // initialize the sync UI
     gSyncUI.init();
 #endif
+
+    gRemoteTabsUI.init();
   },
 
   nonBrowserWindowShutdown: function() {
@@ -1886,17 +2067,11 @@ function BrowserTryToCloseWindow()
 }
 
 function loadURI(uri, referrer, postData, allowThirdPartyFixup) {
-  if (postData === undefined)
-    postData = null;
-
-  var flags = nsIWebNavigation.LOAD_FLAGS_NONE;
-  if (allowThirdPartyFixup) {
-    flags |= nsIWebNavigation.LOAD_FLAGS_ALLOW_THIRD_PARTY_FIXUP;
-    flags |= nsIWebNavigation.LOAD_FLAGS_FIXUP_SCHEME_TYPOS;
-  }
-
   try {
-    gBrowser.loadURIWithFlags(uri, flags, referrer, null, postData);
+    openLinkIn(uri, "current",
+               { referrerURI: referrer,
+                 postData: postData,
+                 allowThirdPartyFixup: allowThirdPartyFixup });
   } catch (e) {}
 }
 
@@ -3538,45 +3713,36 @@ var XULBrowserWindow = {
 
   // Called before links are navigated to to allow us to retarget them if needed.
   onBeforeLinkTraversal: function(originalTarget, linkURI, linkNode, isAppTab) {
-    let target = this._onBeforeLinkTraversal(originalTarget, linkURI, linkNode, isAppTab);
+    let target = BrowserUtils.onBeforeLinkTraversal(originalTarget, linkURI, linkNode, isAppTab);
     return target;
   },
 
-  _onBeforeLinkTraversal: function(originalTarget, linkURI, linkNode, isAppTab) {
-    // Don't modify non-default targets or targets that aren't in top-level app
-    // tab docshells (isAppTab will be false for app tab subframes).
-    if (originalTarget != "" || !isAppTab)
-      return originalTarget;
-
-    // External links from within app tabs should always open in new tabs
-    // instead of replacing the app tab's page (Bug 575561)
-    let linkHost;
-    let docHost;
-    try {
-      linkHost = linkURI.host;
-      docHost = linkNode.ownerDocument.documentURIObject.host;
-    } catch(e) {
-      // nsIURI.host can throw for non-nsStandardURL nsIURIs.
-      // If we fail to get either host, just return originalTarget.
-      return originalTarget;
-    }
-
-    if (docHost == linkHost)
-      return originalTarget;
-
-    // Special case: ignore "www" prefix if it is part of host string
-    let [longHost, shortHost] =
-      linkHost.length > docHost.length ? [linkHost, docHost] : [docHost, linkHost];
-    if (longHost == "www." + shortHost)
-      return originalTarget;
-
-    return "_blank";
-  },
-  
   onLinkIconAvailable: function (aIconURL) {
     if (gProxyFavIcon && gBrowser.userTypedValue === null) {
       PageProxySetIcon(aIconURL); // update the favicon in the URL bar
     }
+  },
+
+  // Check whether this URI should load in the current process
+  shouldLoadURI: function(aDocShell, aURI, aReferrer) {
+    if (!gMultiProcessBrowser)
+      return true;
+
+    let browser = aDocShell.QueryInterface(Ci.nsIDocShellTreeItem)
+                           .sameTypeRootTreeItem
+                           .QueryInterface(Ci.nsIDocShell)
+                           .chromeEventHandler;
+
+    // Ignore loads that aren't in the main tabbrowser
+    if (browser.localName != "browser" || browser.getTabBrowser() != gBrowser)
+      return true;
+
+    if (!E10SUtils.shouldLoadURI(aDocShell, aURI, aReferrer)) {
+      E10SUtils.redirectLoad(aDocShell, aURI, aReferrer);
+      return false;
+    }
+
+    return true;
   },
 
   onProgressChange: function (aWebProgress, aRequest,
@@ -4187,9 +4353,60 @@ function nsBrowserAccess() { }
 nsBrowserAccess.prototype = {
   QueryInterface: XPCOMUtils.generateQI([Ci.nsIBrowserDOMWindow, Ci.nsISupports]),
 
+  _openURIInNewTab: function(aURI, aReferrer, aIsPrivate, aIsExternal, aForceNotRemote=false) {
+    let win, needToFocusWin;
+
+    // try the current window.  if we're in a popup, fall back on the most recent browser window
+    if (window.toolbar.visible)
+      win = window;
+    else {
+      win = RecentWindow.getMostRecentBrowserWindow({private: aIsPrivate});
+      needToFocusWin = true;
+    }
+
+    if (!win) {
+      // we couldn't find a suitable window, a new one needs to be opened.
+      return null;
+    }
+
+    if (aIsExternal && (!aURI || aURI.spec == "about:blank")) {
+      win.BrowserOpenTab(); // this also focuses the location bar
+      win.focus();
+      return win.gBrowser.selectedBrowser;
+    }
+
+    let loadInBackground = gPrefService.getBoolPref("browser.tabs.loadDivertedInBackground");
+
+    let tab = win.gBrowser.loadOneTab(aURI ? aURI.spec : "about:blank", {
+                                      referrerURI: aReferrer,
+                                      fromExternal: aIsExternal,
+                                      inBackground: loadInBackground,
+                                      forceNotRemote: aForceNotRemote});
+    let browser = win.gBrowser.getBrowserForTab(tab);
+
+    if (needToFocusWin || (!loadInBackground && aIsExternal))
+      win.focus();
+
+    return browser;
+  },
+
   openURI: function (aURI, aOpener, aWhere, aContext) {
+    // This function should only ever be called if we're opening a URI
+    // from a non-remote browser window (via nsContentTreeOwner).
+    if (aOpener && Cu.isCrossProcessWrapper(aOpener)) {
+      Cu.reportError("nsBrowserAccess.openURI was passed a CPOW for aOpener. " +
+                     "openURI should only ever be called from non-remote browsers.");
+      throw Cr.NS_ERROR_FAILURE;
+    }
+
     var newWindow = null;
     var isExternal = (aContext == Ci.nsIBrowserDOMWindow.OPEN_EXTERNAL);
+
+    if (aOpener && isExternal) {
+      Cu.reportError("nsBrowserAccess.openURI did not expect an opener to be " +
+                     "passed if the context is OPEN_EXTERNAL.");
+      throw Cr.NS_ERROR_FAILURE;
+    }
 
     if (isExternal && aURI && aURI.schemeIs("chrome")) {
       dump("use -chrome command-line option to load external chrome urls\n");
@@ -4213,45 +4430,18 @@ nsBrowserAccess.prototype = {
         newWindow = openDialog(getBrowserURL(), "_blank", "all,dialog=no", url, null, null, null);
         break;
       case Ci.nsIBrowserDOMWindow.OPEN_NEWTAB :
-        let win, needToFocusWin;
-
-        // try the current window.  if we're in a popup, fall back on the most recent browser window
-        if (window.toolbar.visible)
-          win = window;
-        else {
-          let isPrivate = PrivateBrowsingUtils.isWindowPrivate(aOpener || window);
-          win = RecentWindow.getMostRecentBrowserWindow({private: isPrivate});
-          needToFocusWin = true;
-        }
-
-        if (!win) {
-          // we couldn't find a suitable window, a new one needs to be opened.
-          return null;
-        }
-
-        if (isExternal && (!aURI || aURI.spec == "about:blank")) {
-          win.BrowserOpenTab(); // this also focuses the location bar
-          win.focus();
-          newWindow = win.content;
-          break;
-        }
-
-        let loadInBackground = gPrefService.getBoolPref("browser.tabs.loadDivertedInBackground");
         let referrer = aOpener ? makeURI(aOpener.location.href) : null;
-
-        let tab = win.gBrowser.loadOneTab(aURI ? aURI.spec : "about:blank", {
-                                          referrerURI: referrer,
-                                          fromExternal: isExternal,
-                                          inBackground: loadInBackground});
-        let browser = win.gBrowser.getBrowserForTab(tab);
-
-        if (gPrefService.getBoolPref("browser.tabs.noWindowActivationOnExternal")) {
-          isExternal = false; // this is a hack, but it works
-        }
-
-        newWindow = browser.contentWindow;
-        if (needToFocusWin || (!loadInBackground && isExternal))
-          newWindow.focus();
+        let isPrivate = PrivateBrowsingUtils.isWindowPrivate(aOpener || window);
+        // If we have an opener, that means that the caller is expecting access
+        // to the nsIDOMWindow of the opened tab right away. For e10s windows,
+        // this means forcing the newly opened browser to be non-remote so that
+        // we can hand back the nsIDOMWindow. The XULBrowserWindow.shouldLoadURI
+        // will do the job of shuttling off the newly opened browser to run in
+        // the right process once it starts loading a URI.
+        let forceNotRemote = !!aOpener;
+        let browser = this._openURIInNewTab(aURI, referrer, isPrivate, isExternal, forceNotRemote);
+        if (browser)
+          newWindow = browser.contentWindow;
         break;
       default : // OPEN_CURRENTWINDOW or an illegal value
         newWindow = content;
@@ -4266,6 +4456,20 @@ nsBrowserAccess.prototype = {
           window.focus();
     }
     return newWindow;
+  },
+
+  openURIInFrame: function browser_openURIInFrame(aURI, aParams, aWhere, aContext) {
+    if (aWhere != Ci.nsIBrowserDOMWindow.OPEN_NEWTAB) {
+      dump("Error: openURIInFrame can only open in new tabs");
+      return null;
+    }
+
+    var isExternal = (aContext == Ci.nsIBrowserDOMWindow.OPEN_EXTERNAL);
+    let browser = this._openURIInNewTab(aURI, aParams.referrer, aParams.isPrivate, isExternal);
+    if (browser)
+      return browser.QueryInterface(Ci.nsIFrameLoaderOwner);
+
+    return null;
   },
 
   isTabContentWindow: function (aWindow) {
@@ -5006,9 +5210,9 @@ function handleLinkClick(event, href, linkNode) {
 
   urlSecurityCheck(href, doc.nodePrincipal);
   let params = { charset: doc.characterSet,
-                 allowMixedContent: persistAllowMixedContentInChildTab };
-  if (!BrowserUtils.linkHasNoReferrer(linkNode))
-    params.referrerURI = referrerURI;
+                 allowMixedContent: persistAllowMixedContentInChildTab,
+                 referrerURI: referrerURI,
+                 noReferrer: BrowserUtils.linkHasNoReferrer(linkNode) };
   openLinkIn(href, where, params);
   event.preventDefault();
   return true;
@@ -6719,7 +6923,9 @@ let gPrivateBrowsingUI = {
 
 let gRemoteTabsUI = {
   init: function() {
-    if (window.location.href != getBrowserURL()) {
+    if (window.location.href != getBrowserURL() &&
+        // Also check hidden window for the Mac no-window case
+        window.location.href != "chrome://browser/content/hiddenWindow.xul") {
       return;
     }
 
@@ -7111,23 +7317,6 @@ function focusNextFrame(event) {
   if (element.ownerDocument == document)
     focusAndSelectUrlBar();
 }
-let BrowserChromeTest = {
-  _cb: null,
-  _ready: false,
-  markAsReady: function () {
-    this._ready = true;
-    if (this._cb) {
-      this._cb();
-      this._cb = null;
-    }
-  },
-  runWhenReady: function (cb) {
-    if (this._ready)
-      cb();
-    else
-      this._cb = cb;
-  }
-};
 
 let ToolbarIconColor = {
   init: function () {

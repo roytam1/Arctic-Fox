@@ -12,6 +12,8 @@ Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/InlineSpellChecker.jsm");
 Cu.import("resource://gre/modules/InlineSpellCheckerContent.jsm");
 
+XPCOMUtils.defineLazyModuleGetter(this, "E10SUtils",
+  "resource:///modules/E10SUtils.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "BrowserUtils",
   "resource://gre/modules/BrowserUtils.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "LoginManagerContent",
@@ -247,8 +249,8 @@ let ClickEventHandler = {
           if (json.bookmark)
             event.preventDefault(); // Need to prevent the pageload.
         }
-        json.noReferrer = BrowserUtils.linkHasNoReferrer(node)
       }
+      json.noReferrer = BrowserUtils.linkHasNoReferrer(node)
 
       sendAsyncMessage("Content:Click", json);
       return;
@@ -308,6 +310,59 @@ let ClickEventHandler = {
   }
 };
 ClickEventHandler.init();
+
+function gKeywordURIFixup(fixupInfo) {
+  fixupInfo.QueryInterface(Ci.nsIURIFixupInfo);
+
+  // Ignore info from other docshells
+  let parent = fixupInfo.consumer.QueryInterface(Ci.nsIDocShellTreeItem).sameTypeRootTreeItem;
+  if (parent != docShell)
+    return;
+
+  let data = {};
+  for (let f of Object.keys(fixupInfo)) {
+    if (f == "consumer" || typeof fixupInfo[f] == "function")
+      continue;
+
+    if (fixupInfo[f] && fixupInfo[f] instanceof Ci.nsIURI) {
+      data[f] = fixupInfo[f].spec;
+    } else {
+      data[f] = fixupInfo[f];
+    }
+  }
+
+  sendAsyncMessage("Browser:URIFixup", data);
+}
+Services.obs.addObserver(gKeywordURIFixup, "keyword-uri-fixup", false);
+addEventListener("unload", () => {
+  Services.obs.removeObserver(gKeywordURIFixup, "keyword-uri-fixup");
+}, false);
+
+addMessageListener("Browser:AppTab", function(message) {
+  docShell.isAppTab = message.data.isAppTab;
+});
+
+let WebBrowserChrome = {
+  onBeforeLinkTraversal: function(originalTarget, linkURI, linkNode, isAppTab) {
+    return BrowserUtils.onBeforeLinkTraversal(originalTarget, linkURI, linkNode, isAppTab);
+  },
+
+  // Check whether this URI should load in the current process
+  shouldLoadURI: function(aDocShell, aURI, aReferrer) {
+    if (!E10SUtils.shouldLoadURI(aDocShell, aURI, aReferrer)) {
+      E10SUtils.redirectLoad(aDocShell, aURI, aReferrer);
+      return false;
+    }
+
+    return true;
+  },
+};
+
+if (Services.appinfo.processType == Services.appinfo.PROCESS_TYPE_CONTENT) {
+  let tabchild = docShell.QueryInterface(Ci.nsIInterfaceRequestor)
+                         .getInterface(Ci.nsITabChild);
+  tabchild.webBrowserChrome = WebBrowserChrome;
+}
 
 // Lazily load the finder code
 addMessageListener("Finder:Initialize", function () {

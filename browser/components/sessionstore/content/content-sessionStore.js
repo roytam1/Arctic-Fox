@@ -60,7 +60,7 @@ function createLazy(fn) {
  */
 function isSessionStorageEvent(event) {
   try {
-    return event.storageArea == content.sessionStorage;
+    return event.storageArea == event.target.sessionStorage;
   } catch (ex if ex instanceof Ci.nsIException && ex.result == Cr.NS_ERROR_NOT_AVAILABLE) {
     // This page does not have a DOMSessionStorage
     // (this is typically the case for about: pages)
@@ -142,7 +142,7 @@ let MessageListener = {
         };
 
         // We need to pass the value of didStartLoad back to SessionStore.jsm.
-        let didStartLoad = gContentRestore.restoreTabContent(finishCallback);
+        let didStartLoad = gContentRestore.restoreTabContent(data.loadArguments, finishCallback);
 
         sendAsyncMessage("SessionStore:restoreTabContentStarted", {epoch: epoch});
 
@@ -216,10 +216,18 @@ let SyncHandler = {
  */
 let SessionHistoryListener = {
   init: function () {
+    // The frame tree observer is needed to handle initial subframe loads.
+    // It will redundantly invalidate with the SHistoryListener in some cases
+    // but these invalidations are very cheap.
     gFrameTree.addObserver(this);
-    addEventListener("load", this, true);
-    addEventListener("hashchange", this, true);
-    Services.obs.addObserver(this, "browser:purge-session-history", false);
+
+    // By adding the SHistoryListener immediately, we will unfortunately be
+    // notified of every history entry as the tab is restored. We don't bother
+    // waiting to add the listener later because these notifications are cheap.
+    // We will likely only collect once since we are batching collection on
+    // a delay.
+    docShell.QueryInterface(Ci.nsIWebNavigation).sessionHistory.
+      addSHistoryListener(this);
 
     // Collect data if we start with a non-empty shistory.
     if (!SessionHistory.isEmpty(docShell)) {
@@ -228,22 +236,9 @@ let SessionHistoryListener = {
   },
 
   uninit: function () {
-    Services.obs.removeObserver(this, "browser:purge-session-history");
-  },
-
-  observe: function () {
-    // We need to use setTimeout() here because we listen for
-    // "browser:purge-session-history". When that is fired all observers are
-    // expected to purge their data. We can't expect to be called *after* the
-    // observer in browser.xml that clears session history so we need to wait
-    // a tick before actually collecting data.
-    setTimeout(() => this.collect(), 0);
-  },
-
-  handleEvent: function (event) {
-    // We are only interested in "load" events from subframes.
-    if (event.type == "hashchange" || event.target != content.document) {
-      this.collect();
+    let sessionHistory = docShell.QueryInterface(Ci.nsIWebNavigation).sessionHistory;
+    if (sessionHistory) {
+      sessionHistory.removeSHistoryListener(this);
     }
   },
 
@@ -259,7 +254,45 @@ let SessionHistoryListener = {
 
   onFrameTreeReset: function () {
     this.collect();
-  }
+  },
+
+  OnHistoryNewEntry: function (newURI) {
+    this.collect();
+  },
+
+  OnHistoryGoBack: function (backURI) {
+    this.collect();
+    return true;
+  },
+
+  OnHistoryGoForward: function (forwardURI) {
+    this.collect();
+    return true;
+  },
+
+  OnHistoryGotoIndex: function (index, gotoURI) {
+    this.collect();
+    return true;
+  },
+
+  OnHistoryPurge: function (numEntries) {
+    this.collect();
+    return true;
+  },
+
+  OnHistoryReload: function (reloadURI, reloadFlags) {
+    this.collect();
+    return true;
+  },
+
+  OnHistoryReplaceEntry: function (index) {
+    this.collect();
+  },
+
+  QueryInterface: XPCOMUtils.generateQI([
+    Ci.nsISHistoryListener,
+    Ci.nsISupportsWeakReference
+  ])
 };
 
 /**
@@ -394,7 +427,7 @@ let DocShellCapabilitiesListener = {
  */
 let SessionStorageListener = {
   init: function () {
-    addEventListener("MozStorageChanged", this);
+    addEventListener("MozStorageChanged", this, true);
     Services.obs.addObserver(this, "browser:purge-domain-data", false);
     gFrameTree.addObserver(this);
   },
