@@ -44,7 +44,8 @@ const WINDOW_HIDEABLE_FEATURES = [
   "menubar", "toolbar", "locationbar", "personalbar", "statusbar", "scrollbars"
 ];
 
-const MESSAGES = [
+// Messages that will be received via the Frame Message Manager.
+const FMM_MESSAGES = [
   // The content script gives us a reference to an object that performs
   // synchronous collection of session data.
   "SessionStore:setupSyncHandler",
@@ -60,17 +61,35 @@ const MESSAGES = [
   // time; if we did it before, the load would overwrite it.
   "SessionStore:restoreTabContentStarted",
 
-  // All network loads for a restoring tab are done, so we should consider
-  // restoring another tab in the queue.
-  "SessionStore:restoreTabContentComplete",
-
-  // The document has been restored, so the restore is done. We trigger
+  // All network loads for a restoring tab are done, so we should
+  // consider restoring another tab in the queue. The document has
+  // been restored, and forms have been filled. We trigger
   // SSTabRestored at this time.
-  "SessionStore:restoreDocumentComplete",
+  "SessionStore:restoreTabContentComplete",
 
   // A tab that is being restored was reloaded. We call restoreTabContent to
   // finish restoring it right away.
   "SessionStore:reloadPendingTab",
+];
+
+// The list of messages we accept from <xul:browser>s that have no tab
+// assigned. Those are for example the ones that preload about:newtab pages.
+const FMM_NOTAB_MESSAGES = new Set([
+  // For a description see above.
+  "SessionStore:setupSyncHandler",
+
+  // For a description see above.
+  "SessionStore:update",
+]);
+
+// Messages that will be received via the Parent Process Message Manager.
+const PPMM_MESSAGES = [
+  // A tab is being revived from the crashed state. The sender of this
+  // message should actually be running in the parent process, since this
+  // will be the crashed tab interface. We use the Child and Parent Process
+  // Message Managers because the message is sent during framescript unload
+  // when the Frame Message Manager is not available.
+  "SessionStore:RemoteTabRevived",
 ];
 
 // These are tab events that we listen to.
@@ -84,7 +103,9 @@ Cu.import("resource://gre/modules/XPCOMUtils.jsm", this);
 Cu.import("resource://gre/modules/TelemetryTimestamps.jsm", this);
 Cu.import("resource://gre/modules/TelemetryStopwatch.jsm", this);
 Cu.import("resource://gre/modules/debug.js", this);
-Cu.import("resource://gre/modules/osfile.jsm", this);
+XPCOMUtils.defineLazyServiceGetter(this, "ppmm",
+  "@mozilla.org/parentprocessmessagemanager;1",
+  "nsIMessageListenerManager");Cu.import("resource://gre/modules/osfile.jsm", this);
 Cu.import("resource://gre/modules/PrivateBrowsingUtils.jsm", this);
 Cu.import("resource://gre/modules/Promise.jsm", this);
 Cu.import("resource://gre/modules/Task.jsm", this);
@@ -95,6 +116,9 @@ XPCOMUtils.defineLazyServiceGetter(this, "gScreenManager",
   "@mozilla.org/gfx/screenmanager;1", "nsIScreenManager");
 XPCOMUtils.defineLazyServiceGetter(this, "Telemetry",
   "@mozilla.org/base/telemetry;1", "nsITelemetry");
+XPCOMUtils.defineLazyServiceGetter(this, "ppmm",
+  "@mozilla.org/parentprocessmessagemanager;1",
+  "nsIMessageListenerManager");
 XPCOMUtils.defineLazyModuleGetter(this, "console",
   "resource://gre/modules/devtools/Console.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "RecentWindow",
@@ -327,6 +351,11 @@ let SessionStoreInternal = {
   // For each <browser> element being restored, records the current epoch.
   _browserEpochs: new WeakMap(),
 
+  // Any browsers that fires the oop-browser-crashed event gets stored in
+  // here - that way we know which browsers to ignore messages from (until
+  // they get restored).
+  _crashedBrowsers: new WeakSet(),
+
   // whether a setBrowserState call is in progress
   _browserSetState: false,
 
@@ -423,6 +452,8 @@ let SessionStoreInternal = {
     OBSERVING.forEach(function(aTopic) {
       Services.obs.addObserver(this, aTopic, true);
     }, this);
+
+    PPMM_MESSAGES.forEach(msg => ppmm.addMessageListener(msg, this));
 
     this._initPrefs();
     this._initialized = true;
@@ -578,6 +609,8 @@ let SessionStoreInternal = {
 
     // Make sure to cancel pending saves.
     SessionSaver.cancel();
+
+    PPMM_MESSAGES.forEach(msg => ppmm.removeMessageListener(msg, this));
   },
 
   /**
@@ -623,15 +656,27 @@ let SessionStoreInternal = {
 
   /**
    * This method handles incoming messages sent by the session store content
-   * script and thus enables communication with OOP tabs.
+   * script via the Frame Message Manager or Parent Process Message Manager,
+   * and thus enables communication with OOP tabs.
    */
-  receiveMessage: function ssi_receiveMessage(aMessage) {
+  receiveMessage(aMessage) {
+    // We'll deal with any Parent Process Message Manager messages first...
+    if (aMessage.name == "SessionStore:RemoteTabRevived") {
+      this._crashedBrowsers.delete(aMessage.objects.browser.permanentKey);
+      return;
+    }
+
+    // If we got here, that means we're dealing with a frame message
+    // manager message, so the target will be a <xul:browser>.
     var browser = aMessage.target;
     var win = browser.ownerDocument.defaultView;
     let tab = win ? win.gBrowser.getTabForBrowser(browser) : null;
-    if (!tab) {
-      // Ignore messages from <browser> elements that are not tabs.
-      return;
+
+    // Ensure we receive only specific messages from <xul:browser>s that
+    // have no tab assigned, e.g. the ones that preload about:newtab pages.
+    if (!tab && !FMM_NOTAB_MESSAGES.has(aMessage.name)) {
+      throw new Error(`received unexpected message '${aMessage.name}' ` +
+                      `from a browser that has no tab`);
     }
 
     switch (aMessage.name) {
@@ -639,6 +684,11 @@ let SessionStoreInternal = {
         TabState.setSyncHandler(browser, aMessage.objects.handler);
         break;
       case "SessionStore:update":
+        if (this._crashedBrowsers.has(browser.permanentKey)) {
+          // Ignore messages from <browser> elements that have crashed
+          // and not yet been revived.
+          return;
+        }
         this.recordTelemetry(aMessage.data.telemetry);
         TabState.update(browser, aMessage.data);
         this.saveStateDelayed(win);
@@ -696,34 +746,24 @@ let SessionStoreInternal = {
             Services.obs.notifyObservers(browser, NOTIFY_TAB_RESTORED, null);
           }
 
-          if (tab) {
-            SessionStoreInternal._resetLocalTabRestoringState(tab);
-            SessionStoreInternal.restoreNextTab();
-          }
-        }
-        break;
-      case "SessionStore:restoreDocumentComplete":
-        if (this.isCurrentEpoch(browser, aMessage.data.epoch)) {
-          // Document has been restored. Delete all the state associated
-          // with it and trigger SSTabRestored.
-          let tab = browser.__SS_restore_tab;
-
           delete browser.__SS_restore_data;
-          delete browser.__SS_restore_tab;
           delete browser.__SS_data;
+
+          SessionStoreInternal._resetLocalTabRestoringState(tab);
+          SessionStoreInternal.restoreNextTab();
 
           this._sendTabRestoredNotification(tab);
         }
         break;
       case "SessionStore:reloadPendingTab":
         if (this.isCurrentEpoch(browser, aMessage.data.epoch)) {
-          if (tab && browser.__SS_restoreState == TAB_STATE_NEEDS_RESTORE) {
+          if (browser.__SS_restoreState == TAB_STATE_NEEDS_RESTORE) {
             this.restoreTabContent(tab);
           }
         }
         break;
       default:
-        debug("received unknown message '" + aMessage.name + "'");
+        throw new Error(`received unknown message '${aMessage.name}'`);
         break;
     }
   },
@@ -750,7 +790,6 @@ let SessionStoreInternal = {
       return;
 
     var win = aEvent.currentTarget.ownerDocument.defaultView;
-    let browser;
     switch (aEvent.type) {
       case "TabOpen":
         this.onTabAdd(win, aEvent.originalTarget);
@@ -774,6 +813,9 @@ let SessionStoreInternal = {
       case "TabUnpinned":
       case "SwapDocShells":
         this.saveStateDelayed(win);
+        break;
+      case "oop-browser-crashed":
+        this.onBrowserCrashed(win, aEvent.originalTarget);
         break;
     }
     this._clearRestoringWindows();
@@ -803,7 +845,7 @@ let SessionStoreInternal = {
     aWindow.__SSi = "window" + Date.now();
 
     let mm = aWindow.getGroupMessageManager("browsers");
-    MESSAGES.forEach(msg => mm.addMessageListener(msg, this));
+    FMM_MESSAGES.forEach(msg => mm.addMessageListener(msg, this));
 
     // Load the frame script after registering listeners.
     mm.loadFrameScript("chrome://browser/content/content-sessionStore.js", true);
@@ -1130,7 +1172,7 @@ let SessionStoreInternal = {
     DyingWindowCache.set(aWindow, winData);
 
     let mm = aWindow.getGroupMessageManager("browsers");
-    MESSAGES.forEach(msg => mm.removeMessageListener(msg, this));
+    FMM_MESSAGES.forEach(msg => mm.removeMessageListener(msg, this));
 
     delete aWindow.__SSi;
   },
@@ -1332,6 +1374,7 @@ let SessionStoreInternal = {
   onTabAdd: function ssi_onTabAdd(aWindow, aTab, aNoNotification) {
     let browser = aTab.linkedBrowser;
     browser.addEventListener("SwapDocShells", this);
+    browser.addEventListener("oop-browser-crashed", this);
     if (!aNoNotification) {
       this.saveStateDelayed(aWindow);
     }
@@ -1350,6 +1393,7 @@ let SessionStoreInternal = {
     let browser = aTab.linkedBrowser;
     delete browser.__SS_data;
     browser.removeEventListener("SwapDocShells", this);
+    browser.removeEventListener("oop-browser-crashed", this);
 
     // If this tab was in the middle of restoring or still needs to be restored,
     // we need to reset that state. If the tab was restoring, we will attempt to
@@ -1473,6 +1517,29 @@ let SessionStoreInternal = {
     // Default delay of 2 seconds gives enough time to catch multiple TabHide
     // events due to changing groups in Panorama.
     this.saveStateDelayed(aWindow);
+  },
+
+  /**
+   * Handler for the event that is fired when a <xul:browser> crashes.
+   *
+   * @param aWindow
+   *        The window that the crashed browser belongs to.
+   * @param aBrowser
+   *        The <xul:browser> that is now in the crashed state.
+   */
+  onBrowserCrashed: function(aWindow, aBrowser) {
+    this._crashedBrowsers.add(aBrowser.permanentKey);
+    // If we never got around to restoring this tab, clear its state so
+    // that we don't try restoring if the user switches to it before
+    // reviving the crashed browser. This is throwing away the information
+    // that the tab was in a pending state when the browser crashed, which
+    // is an explicit choice. For now, when restoring all crashed tabs, based
+    // on a user preference we'll either restore all of them at once, or only
+    // restore the selected tab and lazily restore the rest. We'll make no
+    // efforts at this time to be smart and restore all of the tabs that had
+    // been in a restored state at the time of the crash.
+    let tab = aWindow.gBrowser.getTabForBrowser(aBrowser);
+    this._resetLocalTabRestoringState(tab);
   },
 
   onGatherTelemetry: function() {
@@ -2715,8 +2782,6 @@ let SessionStoreInternal = {
     } else {
       browser.__SS_restore_data = {};
     }
-
-    browser.__SS_restore_tab = aTab;
 
     browser.messageManager.sendAsyncMessage("SessionStore:restoreTabContent",
       {loadArguments: aLoadArguments});

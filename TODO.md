@@ -45,6 +45,7 @@
 - 1184634 - Rename MediaPromise to MozPromise
 - 1164427 - Implement elementsFromPoint (= Tests)
 - 1160485 - 2015-05-01 - remove implicit conversion from RefPtr<T> to TemporaryRef<T>
+- 1165162 - 2015-05-15 - Serialize originSuffix into .origin. r=gabor,sr=sicking
 - 1142669 part 6 - Don't inline scripts that are known to inline a
 - 1141862 - 2015-04-03 : 6 parts
 - 1124291 - SIMD (interpreter): Implemented int8x16 and int16x8 
@@ -116,24 +117,30 @@
 - Bug 1038811 2015-04-11 Complete remaining
 - Bug 1135903 - 2015-03-25 - OdinMonkey: Make signal-handler OOB checking an indepen…
 - Bug 1140317 2015-03-10 Make sure chars created by DecompileValueGenerator won't
-- Bug 1073379, 2015-03-06 part 7 - Tests for the effect of setting a CSS transitio
-- Bug 1113431 - Propagate referrer policy throughout the UI: command-cl
-- Bug 1083281: Use flags to determine which chrome and about URIs are 
+- Bug 1129650 - Touching navigator.mozId causes an error NS_ERROR_FACTO (Check MacOS-X failres and dependencies)
 
+- Bug 1136956 - Set CoreLocation provider to non-release only in firefo
+- Bug 1125411 - OSX: turn CoreLocation provider o 
+
+
+Check with Roy Tam:
+- Bug 1129633 - part 2. In prefs, set win8 provider to RELEASE-only. 
+- Bug 1129633 - part1. Use win8 geolocation with a fallback to MLS
+- bug 1139012 - telemetry for MLS vs win8 geolocation response.
 
 Require check of JS browser components:
 
-- Bug 1169892 - Avoid extra round-trip when a pending tab is reloaded r
-- Bug 1133201 - part 2 - don't send referrer information when opening new windows via context menu; r=Gijs,mconley
-- Bug 1118502 - part 2 - ensure addOneTab sees a referrer URI if it was
-- Bug 1135913 - 4 parts
-- Bug 1135537 - 2015-02-24 - DebugOnly.h needed for DebugOnly uses in SavedStacks.
+- Bug 863753 - Retire the Firefox appmenu button. r=MattN
+- Bug 625989 - Always draw in the titlebar on OSX. r=josh,dao f=mstange 
+
+What with LightweightThemeConsumer.jsm 
+
 
 
 Parents of:
 
 https://github.com/mozilla/newtab-dev/commit/8bb15120a98ea5838ce19e97ae5c685d9bbf3f04
-https://github.com/mozilla/newtab-dev/commit/a4099ba4c5867b9735dbacfbc5c9fe0629e0a145
+https://github.com/mozilla/newtab-dev/commit/ea49fe57ecbb1cd6a694458cac110c71de267f84
 
 To verify:
 - Bug 1133140 - Move runtime heap size limit checks up to GCIfNeeded;
