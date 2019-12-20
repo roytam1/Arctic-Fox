@@ -137,12 +137,12 @@ pref("app.update.certs.1.issuerName", "CN=COMODO RSA Domain Validation Secure Se
 pref("app.update.certs.1.commonName", "*.palemoon.org");
 
 // Whether or not app updates are enabled
-pref("app.update.enabled", true);
+pref("app.update.enabled", false);
 
 // This preference turns on app.update.mode and allows automatic download and
 // install to take place. We use a separate boolean toggle for this to make
 // the UI easier to construct.
-pref("app.update.auto", true);
+pref("app.update.auto", false);
 
 // See chart in nsUpdateService.js source for more details
 pref("app.update.mode", 1);
@@ -155,7 +155,7 @@ pref("app.update.silent", false);
 pref("app.update.staging.enabled", true);
 
 // Update service URL:
-pref("app.update.url", "https://aus3.mozilla.org/update/3/%PRODUCT%/%VERSION%/%BUILD_ID%/%BUILD_TARGET%/%LOCALE%/%CHANNEL%/%OS_VERSION%/%DISTRIBUTION%/%DISTRIBUTION_VERSION%/update.xml");
+pref("app.update.url", "https://github.com/wicknix/Arctic-Fox/wiki/Downloads");
 // app.update.url.manual is in branding section
 // app.update.url.details is in branding section
 
@@ -807,6 +807,8 @@ pref("browser.sessionstore.restore_hidden_tabs", false);
 pref("browser.sessionstore.restore_pinned_tabs_on_demand", false);
 // The version at which we performed the latest upgrade backup
 pref("browser.sessionstore.upgradeBackup.latestBuildID", "");
+// How many upgrade backups should be kept
+pref("browser.sessionstore.upgradeBackup.maxUpgradeBackups", 3);
 // End-users should not run sessionstore in debug mode
 pref("browser.sessionstore.debug", false);
 // Forget closed windows/tabs after two weeks
@@ -886,7 +888,7 @@ pref("browser.zoom.siteSpecific", true);
 pref("browser.zoom.updateBackgroundTabs", true);
 
 // base URL for web-based support pages
-pref("app.support.baseURL", "https://support.mozilla.org/1/firefox/%VERSION%/%OS%/%LOCALE%/");
+pref("app.support.baseURL", "https://github.com/wicknix/Arctic-Fox/wiki/");
 
 // Name of alternate about: page for certificate errors (when undefined, defaults to about:neterror)
 pref("security.alternate_certificate_error_page", "certerror");
@@ -1121,6 +1123,14 @@ pref("dom.debug.propagate_gesture_events_through_content", false);
 
 // The request URL of the GeoLocation backend.
 pref("geo.wifi.uri", "http://ip-api.com/json/?fields=lat,lon,status,message");
+
+#ifdef XP_MACOSX
+#ifdef RELEASE_BUILD
+pref("geo.provider.use_corelocation", false);
+#else
+pref("geo.provider.use_corelocation", true);
+#endif
+#endif
 
 // Necko IPC security checks only needed for app isolation for cookies/cache/etc:
 // currently irrelevant for desktop e10s

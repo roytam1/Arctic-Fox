@@ -30,7 +30,6 @@ const OBSERVING = [
   "quit-application-requested", "browser-lastwindow-close-granted",
   "quit-application", "browser:purge-session-history",
   "browser:purge-domain-data",
-  "gather-telemetry",
   "idle-daily",
 ];
 
@@ -45,7 +44,7 @@ const WINDOW_HIDEABLE_FEATURES = [
 ];
 
 // Messages that will be received via the Frame Message Manager.
-const FMM_MESSAGES = [
+const MESSAGES = [
   // The content script gives us a reference to an object that performs
   // synchronous collection of session data.
   "SessionStore:setupSyncHandler",
@@ -67,14 +66,14 @@ const FMM_MESSAGES = [
   // SSTabRestored at this time.
   "SessionStore:restoreTabContentComplete",
 
-  // A tab that is being restored was reloaded. We call restoreTabContent to
-  // finish restoring it right away.
-  "SessionStore:reloadPendingTab",
+  // A crashed tab was revived by navigating to a different page. Remove its
+  // browser from the list of crashed browsers to stop ignoring its messages.
+  "SessionStore:crashedTabRevived",
 ];
 
 // The list of messages we accept from <xul:browser>s that have no tab
 // assigned. Those are for example the ones that preload about:newtab pages.
-const FMM_NOTAB_MESSAGES = new Set([
+const NOTAB_MESSAGES = new Set([
   // For a description see above.
   "SessionStore:setupSyncHandler",
 
@@ -82,15 +81,23 @@ const FMM_NOTAB_MESSAGES = new Set([
   "SessionStore:update",
 ]);
 
-// Messages that will be received via the Parent Process Message Manager.
-const PPMM_MESSAGES = [
-  // A tab is being revived from the crashed state. The sender of this
-  // message should actually be running in the parent process, since this
-  // will be the crashed tab interface. We use the Child and Parent Process
-  // Message Managers because the message is sent during framescript unload
-  // when the Frame Message Manager is not available.
-  "SessionStore:RemoteTabRevived",
-];
+// The list of messages we accept without an "epoch" parameter.
+// See getCurrentEpoch() and friends to find out what an "epoch" is.
+const NOEPOCH_MESSAGES = new Set([
+  // For a description see above.
+  "SessionStore:setupSyncHandler",
+
+  // For a description see above.
+  "SessionStore:crashedTabRevived",
+]);
+
+// The list of messages we want to receive even during the short period after a
+// frame has been removed from the DOM and before its frame script has finished
+// unloading.
+const CLOSED_MESSAGES = new Set([
+  // For a description see above.
+  "SessionStore:crashedTabRevived",
+]);
 
 // These are tab events that we listen to.
 const TAB_EVENTS = [
@@ -345,10 +352,7 @@ let SessionStoreInternal = {
   // windows yet to be restored
   _restoreCount: -1,
 
-  // This number gets incremented each time we start to restore a tab.
-  _nextRestoreEpoch: 1,
-
-  // For each <browser> element being restored, records the current epoch.
+  // For each <browser> element, records the current epoch.
   _browserEpochs: new WeakMap(),
 
   // Any browsers that fires the oop-browser-crashed event gets stored in
@@ -452,8 +456,6 @@ let SessionStoreInternal = {
     OBSERVING.forEach(function(aTopic) {
       Services.obs.addObserver(this, aTopic, true);
     }, this);
-
-    PPMM_MESSAGES.forEach(msg => ppmm.addMessageListener(msg, this));
 
     this._initPrefs();
     this._initialized = true;
@@ -599,6 +601,9 @@ let SessionStoreInternal = {
       throw new Error("SessionStore is not initialized.");
     }
 
+    // Prepare to close the session file and write the last state.
+    RunState.setClosing();
+
     // save all data for session resuming
     if (this._sessionInitialized) {
       SessionSaver.run();
@@ -609,8 +614,6 @@ let SessionStoreInternal = {
 
     // Make sure to cancel pending saves.
     SessionSaver.cancel();
-
-    PPMM_MESSAGES.forEach(msg => ppmm.removeMessageListener(msg, this));
   },
 
   /**
@@ -645,9 +648,6 @@ let SessionStoreInternal = {
       case "nsPref:changed": // catch pref changes
         this.onPrefChange(aData);
         break;
-      case "gather-telemetry":
-        this.onGatherTelemetry();
-        break;
       case "idle-daily":
         this.onIdleDaily();
         break;
@@ -660,12 +660,6 @@ let SessionStoreInternal = {
    * and thus enables communication with OOP tabs.
    */
   receiveMessage(aMessage) {
-    // We'll deal with any Parent Process Message Manager messages first...
-    if (aMessage.name == "SessionStore:RemoteTabRevived") {
-      this._crashedBrowsers.delete(aMessage.objects.browser.permanentKey);
-      return;
-    }
-
     // If we got here, that means we're dealing with a frame message
     // manager message, so the target will be a <xul:browser>.
     var browser = aMessage.target;
@@ -674,9 +668,22 @@ let SessionStoreInternal = {
 
     // Ensure we receive only specific messages from <xul:browser>s that
     // have no tab assigned, e.g. the ones that preload about:newtab pages.
-    if (!tab && !FMM_NOTAB_MESSAGES.has(aMessage.name)) {
+    if (!tab && !NOTAB_MESSAGES.has(aMessage.name)) {
       throw new Error(`received unexpected message '${aMessage.name}' ` +
                       `from a browser that has no tab`);
+    }
+
+    let data = aMessage.data || {};
+    let hasEpoch = data.hasOwnProperty("epoch");
+
+    // Most messages sent by frame scripts require to pass an epoch.
+    if (!hasEpoch && !NOEPOCH_MESSAGES.has(aMessage.name)) {
+      throw new Error(`received message '${aMessage.name}' without an epoch`);
+    }
+
+    // Ignore messages from previous epochs.
+    if (hasEpoch && !this.isCurrentEpoch(browser, data.epoch)) {
+      return;
     }
 
     switch (aMessage.name) {
@@ -694,39 +701,41 @@ let SessionStoreInternal = {
         this.saveStateDelayed(win);
         break;
       case "SessionStore:restoreHistoryComplete":
-        if (this.isCurrentEpoch(browser, aMessage.data.epoch)) {
-          // Notify the tabbrowser that the tab chrome has been restored.
-          let tabData = browser.__SS_data;
+        // Notify the tabbrowser that the tab chrome has been restored.
+        let tabData = browser.__SS_data;
 
-          // wall-paper fix for bug 439675: make sure that the URL to be loaded
-          // is always visible in the address bar
-          let activePageData = tabData.entries[tabData.index - 1] || null;
-          let uri = activePageData ? activePageData.url || null : null;
-          browser.userTypedValue = uri;
+        // wall-paper fix for bug 439675: make sure that the URL to be loaded
+        // is always visible in the address bar
+        let activePageData = tabData.entries[tabData.index - 1] || null;
+        let uri = activePageData ? activePageData.url || null : null;
+        browser.userTypedValue = uri;
 
-          // If the page has a title, set it.
-          if (activePageData) {
-            if (activePageData.title) {
-              tab.label = activePageData.title;
-              tab.crop = "end";
-            } else if (activePageData.url != "about:blank") {
-              tab.label = activePageData.url;
-              tab.crop = "center";
-            }
+        // If the page has a title, set it.
+        if (activePageData) {
+          if (activePageData.title) {
+            tab.label = activePageData.title;
+            tab.crop = "end";
+          } else if (activePageData.url != "about:blank") {
+            tab.label = activePageData.url;
+            tab.crop = "center";
           }
-
-          // Restore the tab icon.
-          if ("image" in tabData) {
-            win.gBrowser.setIcon(tab, tabData.image);
-          }
-
-          let event = win.document.createEvent("Events");
-          event.initEvent("SSTabRestoring", true, false);
-          tab.dispatchEvent(event);
         }
+
+        // Restore the tab icon.
+        if ("image" in tabData) {
+          win.gBrowser.setIcon(tab, tabData.image);
+        }
+
+        let event = win.document.createEvent("Events");
+        event.initEvent("SSTabRestoring", true, false);
+        tab.dispatchEvent(event);
         break;
       case "SessionStore:restoreTabContentStarted":
-        if (this.isCurrentEpoch(browser, aMessage.data.epoch)) {
+        if (browser.__SS_restoreState == TAB_STATE_NEEDS_RESTORE) {
+          // If a load not initiated by sessionstore was started in a
+          // previously pending tab. Mark the tab as no longer pending.
+          this.markTabAsRestoring(tab);
+        } else {
           // If the user was typing into the URL bar when we crashed, but hadn't hit
           // enter yet, then we just need to write that value to the URL bar without
           // loading anything. This must happen after the load, since it will clear
@@ -739,28 +748,21 @@ let SessionStoreInternal = {
         }
         break;
       case "SessionStore:restoreTabContentComplete":
-        if (this.isCurrentEpoch(browser, aMessage.data.epoch)) {
-          // This callback is used exclusively by tests that want to
-          // monitor the progress of network loads.
-          if (gDebuggingEnabled) {
-            Services.obs.notifyObservers(browser, NOTIFY_TAB_RESTORED, null);
-          }
-
-          delete browser.__SS_restore_data;
-          delete browser.__SS_data;
-
-          SessionStoreInternal._resetLocalTabRestoringState(tab);
-          SessionStoreInternal.restoreNextTab();
-
-          this._sendTabRestoredNotification(tab);
+        // This callback is used exclusively by tests that want to
+        // monitor the progress of network loads.
+        if (gDebuggingEnabled) {
+          Services.obs.notifyObservers(browser, NOTIFY_TAB_RESTORED, null);
         }
+
+        delete browser.__SS_data;
+
+        SessionStoreInternal._resetLocalTabRestoringState(tab);
+        SessionStoreInternal.restoreNextTab();
+
+        this._sendTabRestoredNotification(tab);
         break;
-      case "SessionStore:reloadPendingTab":
-        if (this.isCurrentEpoch(browser, aMessage.data.epoch)) {
-          if (browser.__SS_restoreState == TAB_STATE_NEEDS_RESTORE) {
-            this.restoreTabContent(tab);
-          }
-        }
+      case "SessionStore:crashedTabRevived":
+        this._crashedBrowsers.delete(browser.permanentKey);
         break;
       default:
         throw new Error(`received unknown message '${aMessage.name}'`);
@@ -845,7 +847,10 @@ let SessionStoreInternal = {
     aWindow.__SSi = "window" + Date.now();
 
     let mm = aWindow.getGroupMessageManager("browsers");
-    FMM_MESSAGES.forEach(msg => mm.addMessageListener(msg, this));
+    MESSAGES.forEach(msg => {
+      let listenWhenClosed = CLOSED_MESSAGES.has(msg);
+      mm.addMessageListener(msg, this, listenWhenClosed);
+    });
 
     // Load the frame script after registering listeners.
     mm.loadFrameScript("chrome://browser/content/content-sessionStore.js", true);
@@ -1172,7 +1177,7 @@ let SessionStoreInternal = {
     DyingWindowCache.set(aWindow, winData);
 
     let mm = aWindow.getGroupMessageManager("browsers");
-    FMM_MESSAGES.forEach(msg => mm.removeMessageListener(msg, this));
+    MESSAGES.forEach(msg => mm.removeMessageListener(msg, this));
 
     delete aWindow.__SSi;
   },
@@ -1540,14 +1545,6 @@ let SessionStoreInternal = {
     // been in a restored state at the time of the crash.
     let tab = aWindow.gBrowser.getTabForBrowser(aBrowser);
     this._resetLocalTabRestoringState(tab);
-  },
-
-  onGatherTelemetry: function() {
-    // On the first gather-telemetry notification of the session,
-    // gather telemetry data.
-    Services.obs.removeObserver(this, "gather-telemetry");
-    let stateString = SessionStore.getBrowserState();
-    return SessionFile.gatherTelemetry(stateString);
   },
 
   // Clean up data that has been closed a long time ago.
@@ -2334,7 +2331,6 @@ let SessionStoreInternal = {
   _collectWindowData: function ssi_collectWindowData(aWindow) {
     if (!this._isWindowLoaded(aWindow))
       return;
-    TelemetryStopwatch.start("FX_SESSION_RESTORE_COLLECT_SINGLE_WINDOW_DATA_MS");
 
     let tabbrowser = aWindow.gBrowser;
     let tabs = tabbrowser.tabs;
@@ -2356,7 +2352,6 @@ let SessionStoreInternal = {
         aWindow.__SS_lastSessionWindowID;
 
     DirtyWindows.remove(aWindow);
-    TelemetryStopwatch.finish("FX_SESSION_RESTORE_COLLECT_SINGLE_WINDOW_DATA_MS");
   },
 
   /* ........ Restoring Functionality .............. */
@@ -2386,15 +2381,23 @@ let SessionStoreInternal = {
     if (aWindow && (!aWindow.__SSi || !this._windows[aWindow.__SSi]))
       this.onLoad(aWindow);
 
+    let root;
     try {
-      var root = typeof aState == "string" ? JSON.parse(aState) : aState;
-      if (!root.windows[0]) {
-        this._sendRestoreCompletedNotifications();
-        return; // nothing to restore
-      }
+      root = (typeof aState == "string") ? JSON.parse(aState) : aState;
     }
     catch (ex) { // invalid state object - don't restore anything
       debug(ex);
+      this._sendRestoreCompletedNotifications();
+      return;
+    }
+
+    // Restore closed windows if any.
+    if (root._closedWindows) {
+      this._closedWindows = root._closedWindows;
+    }
+
+    // We're done here if there are no windows.
+    if (!root.windows || !root.windows.length) {
       this._sendRestoreCompletedNotifications();
       return;
     }
@@ -2404,9 +2407,6 @@ let SessionStoreInternal = {
     // We're not returning from this before we end up calling restoreTabs
     // for this window, so make sure we send the SSWindowStateBusy event.
     this._setWindowStateBusy(aWindow);
-
-    if (root._closedWindows)
-      this._closedWindows = root._closedWindows;
 
     var winData;
     if (!root.selectedWindow || root.selectedWindow > root.windows.length) {
@@ -2673,11 +2673,6 @@ let SessionStoreInternal = {
     // Tab is now open.
     delete tabData.closedAt;
 
-    // Flush all data from the content script synchronously. This is done so
-    // that all async messages that are still on their way to chrome will
-    // be ignored and don't override any tab data set when restoring.
-    TabState.flush(browser);
-
     // Ensure the index is in bounds.
     let activeIndex = (tabData.index || tabData.entries.length) - 1;
     activeIndex = Math.min(activeIndex, tabData.entries.length - 1);
@@ -2695,11 +2690,10 @@ let SessionStoreInternal = {
     }
     tabbrowser.updateBrowserRemotenessByURL(browser, uri);
 
-    // Start a new epoch and include the epoch in the restoreHistory
-    // message. If a message is received that relates to a previous epoch, we
-    // discard it.
-    let epoch = this._nextRestoreEpoch++;
-    this._browserEpochs.set(browser.permanentKey, epoch);
+    // Start a new epoch to discard all frame script messages relating to a
+    // previous epoch. All async messages that are still on their way to chrome
+    // will be ignored and don't override any tab data set when restoring.
+    let epoch = this.startNextEpoch(browser);
 
     // keep the data around to prevent dataloss in case
     // a tab gets closed before it's been properly restored
@@ -2719,7 +2713,7 @@ let SessionStoreInternal = {
     });
 
     browser.messageManager.sendAsyncMessage("SessionStore:restoreHistory",
-                                            {tabData: tabData, epoch: epoch});
+                                            {tabData: tabData, epoch: epoch, loadArguments});
 
     // Restore tab attributes.
     if ("attributes" in tabData) {
@@ -2740,26 +2734,32 @@ let SessionStoreInternal = {
   },
 
   /**
-   * Restores the specified tab. If the tab can't be restored (eg, no history or
-   * calling gotoIndex fails), then state changes will be rolled back.
-   * This method will check if gTabsProgressListener is attached to the tab's
-   * window, ensuring that we don't get caught without one.
-   * This method removes the session history listener right before starting to
-   * attempt a load. This will prevent cases of "stuck" listeners.
-   * If this method returns false, then it is up to the caller to decide what to
-   * do. In the common case (restoreNextTab), we will want to then attempt to
-   * restore the next tab. In the other case (selecting the tab, reloading the
-   * tab), the caller doesn't actually want to do anything if no page is loaded.
+   * Kicks off restoring the given tab.
    *
    * @param aTab
    *        the tab to restore
-   *
-   * @returns true/false indicating whether or not a load actually happened
+   * @param aLoadArguments
+   *        optional load arguments used for loadURI()
    */
   restoreTabContent: function (aTab, aLoadArguments = null) {
-    let window = aTab.ownerDocument.defaultView;
+    this.markTabAsRestoring(aTab);
+
     let browser = aTab.linkedBrowser;
-    let tabData = browser.__SS_data;
+    browser.messageManager.sendAsyncMessage("SessionStore:restoreTabContent",
+      {loadArguments: aLoadArguments});
+  },
+
+  /**
+   * Marks a given pending tab as restoring.
+   *
+   * @param aTab
+   *        the pending tab to mark as restoring
+   */
+  markTabAsRestoring(aTab) {
+    let browser = aTab.linkedBrowser;
+    if (browser.__SS_restoreState != TAB_STATE_NEEDS_RESTORE) {
+      throw new Error("Given tab is not pending.");
+    }
 
     // Make sure that this tab is removed from the priority queue.
     TabRestoreQueue.remove(aTab);
@@ -2771,20 +2771,6 @@ let SessionStoreInternal = {
     browser.__SS_restoreState = TAB_STATE_RESTORING;
     browser.removeAttribute("pending");
     aTab.removeAttribute("pending");
-
-    let activeIndex = tabData.index - 1;
-
-    // Attach data that will be restored on "load" event, after tab is restored.
-    if (activeIndex > -1) {
-      // restore those aspects of the currently active documents which are not
-      // preserved in the plain history entries (mainly scroll state and text data)
-      browser.__SS_restore_data = tabData.entries[activeIndex] || {};
-    } else {
-      browser.__SS_restore_data = {};
-    }
-
-    browser.messageManager.sendAsyncMessage("SessionStore:restoreTabContent",
-      {loadArguments: aLoadArguments});
   },
 
   /**
@@ -3510,7 +3496,6 @@ let SessionStoreInternal = {
 
     // The browser is no longer in any sort of restoring state.
     delete browser.__SS_restoreState;
-    this._browserEpochs.delete(browser.permanentKey);
 
     aTab.removeAttribute("pending");
     browser.removeAttribute("pending");
@@ -3535,6 +3520,26 @@ let SessionStoreInternal = {
   },
 
   /**
+   * Each fresh tab starts out with epoch=0. This function can be used to
+   * start a next epoch by incrementing the current value. It will enables us
+   * to ignore stale messages sent from previous epochs. The function returns
+   * the new epoch ID for the given |browser|.
+   */
+  startNextEpoch(browser) {
+    let next = this.getCurrentEpoch(browser) + 1;
+    this._browserEpochs.set(browser.permanentKey, next);
+    return next;
+  },
+
+  /**
+   * Returns the current epoch for the given <browser>. If we haven't assigned
+   * a new epoch this will default to zero for new tabs.
+   */
+  getCurrentEpoch(browser) {
+    return this._browserEpochs.get(browser.permanentKey) || 0;
+  },
+
+  /**
    * Each time a <browser> element is restored, we increment its "epoch". To
    * check if a message from content-sessionStore.js is out of date, we can
    * compare the epoch received with the message to the <browser> element's
@@ -3542,7 +3547,7 @@ let SessionStoreInternal = {
    * with respect to |browser|.
    */
   isCurrentEpoch: function (browser, epoch) {
-    return (this._browserEpochs.get(browser.permanentKey) || 0) == epoch;
+    return this.getCurrentEpoch(browser) == epoch;
   },
 
   // A map (xul:browser -> handler) that maps a tab to the
