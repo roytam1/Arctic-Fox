@@ -635,14 +635,13 @@ pref("accessibility.typeaheadfind.flashBar", 1);
 pref("plugins.hide_infobar_for_blocked_plugin", false);
 pref("plugins.hide_infobar_for_outdated_plugin", false);
 
-// Pale Moon:pref to always show the plugin indicator or not (default=false)
-pref("plugins.always_show_indicator", false);
-
 pref("plugins.update.url", "https://www.mozilla.org/%LOCALE%/plugincheck/");
 pref("plugins.update.notifyUser", false);
 
 //Enable tri-state option (Always/Never/Ask)
 pref("plugins.click_to_play", true);
+
+pref("plugins.hideMissingPluginsNotification", false);
 
 #ifdef XP_WIN
 pref("browser.preferences.instantApply", false);
