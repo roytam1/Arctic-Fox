@@ -20,9 +20,9 @@ const NOTIFY_LAST_SESSION_CLEARED = "sessionstore-last-session-cleared";
 
 const NOTIFY_TAB_RESTORED = "sessionstore-debug-tab-restored"; // WARNING: debug-only
 
-// Default maximum number of tabs to restore simultaneously. Controlled by
+// Maximum number of tabs to restore simultaneously. Previously controlled by
 // the browser.sessionstore.max_concurrent_tabs pref.
-const DEFAULT_MAX_CONCURRENT_TAB_RESTORES = 3;
+const MAX_CONCURRENT_TAB_RESTORES = 3;
 
 // global notifications observed
 const OBSERVING = [
@@ -116,6 +116,7 @@ XPCOMUtils.defineLazyServiceGetter(this, "ppmm",
 Cu.import("resource://gre/modules/PrivateBrowsingUtils.jsm", this);
 Cu.import("resource://gre/modules/Promise.jsm", this);
 Cu.import("resource://gre/modules/Task.jsm", this);
+Cu.import("resource://gre/modules/debug.js", this);
 
 XPCOMUtils.defineLazyServiceGetter(this, "gSessionStartup",
   "@mozilla.org/browser/sessionstartup;1", "nsISessionStartup");
@@ -385,9 +386,6 @@ let SessionStoreInternal = {
   // number of tabs currently restoring
   _tabsRestoringCount: 0,
   
-  // max number of tabs to restore concurrently
-  _maxConcurrentTabRestores: DEFAULT_MAX_CONCURRENT_TAB_RESTORES,
-  
   // whether restored tabs load cached versions or force a reload
   _cacheBehavior: 0,
   
@@ -410,10 +408,6 @@ let SessionStoreInternal = {
 
   // Whether session has been initialized
   _sessionInitialized: false,
-
-  // True if session store is disabled by multi-process browsing.
-  // See bug 516755.
-  _disabledForMultiProcess: false,
 
   // The original "sessionstore.resume_session_once" preference value before it
   // was modified by saveState.  saveState will set the
@@ -459,7 +453,6 @@ let SessionStoreInternal = {
 
     this._initPrefs();
     this._initialized = true;
-    this._disabledForMultiProcess = false;
 
     // this pref is only read at startup, so no need to observe it
     this._sessionhistory_max_entries =
@@ -579,17 +572,6 @@ let SessionStoreInternal = {
     
     this._max_windows_undo = this._prefBranch.getIntPref("sessionstore.max_windows_undo");
     this._prefBranch.addObserver("sessionstore.max_windows_undo", this, true);
-    
-    // Straight-up collect the following one-time prefs
-    this._maxConcurrentTabRestores = 
-         Services.prefs.getIntPref("browser.sessionstore.max_concurrent_tabs");
-    // ensure a sane value for concurrency, ignore and set default otherwise
-    if (this._maxConcurrentTabRestores < 1 || this._maxConcurrentTabRestores > 10) {
-      this._maxConcurrentTabRestores = DEFAULT_MAX_CONCURRENT_TAB_RESTORES;
-    }
-    this._cacheBehavior =
-         Services.prefs.getIntPref("browser.sessionstore.cache_behavior");
-    
   },
 
   /**
@@ -620,9 +602,6 @@ let SessionStoreInternal = {
    * Handle notifications
    */
   observe: function ssi_observe(aSubject, aTopic, aData) {
-    if (this._disabledForMultiProcess)
-      return;
-
     switch (aTopic) {
       case "browser-window-before-show": // catch new windows
         this.onBeforeBrowserWindowShown(aSubject);
@@ -788,9 +767,6 @@ let SessionStoreInternal = {
    * Implement nsIDOMEventListener for handling various window and tab events
    */
   handleEvent: function ssi_handleEvent(aEvent) {
-    if (this._disabledForMultiProcess)
-      return;
-
     var win = aEvent.currentTarget.ownerDocument.defaultView;
     switch (aEvent.type) {
       case "TabOpen":
@@ -1134,6 +1110,11 @@ let SessionStoreInternal = {
       winData._shouldRestore = true;
 #endif
 
+      // Store the window's close date to figure out when each individual tab
+      // was closed. This timestamp should allow re-arranging data based on how
+      // recently something was closed.
+      winData.closedAt = Date.now();
+
       // Save non-private windows if they have at
       // least one saveable tab or are the last window.
       if (!winData.isPrivate) {
@@ -1456,7 +1437,8 @@ let SessionStoreInternal = {
         state: tabState,
         title: tabTitle,
         image: tabbrowser.getIcon(aTab),
-        pos: aTab._tPos
+        pos: aTab._tPos,
+        closedAt: Date.now()
       });
       var length = this._windows[aWindow.__SSi]._closedTabs.length;
       if (length > this._max_tabs_undo)
@@ -1543,8 +1525,10 @@ let SessionStoreInternal = {
     // restore the selected tab and lazily restore the rest. We'll make no
     // efforts at this time to be smart and restore all of the tabs that had
     // been in a restored state at the time of the crash.
-    let tab = aWindow.gBrowser.getTabForBrowser(aBrowser);
-    this._resetLocalTabRestoringState(tab);
+    if (aBrowser.__SS_restoreState) {
+      let tab = aWindow.gBrowser.getTabForBrowser(aBrowser);
+      this._resetLocalTabRestoringState(tab);
+    }
   },
 
   // Clean up data that has been closed a long time ago.
@@ -2622,6 +2606,9 @@ let SessionStoreInternal = {
 
   // Restores the given tab state for a given tab.
   restoreTab(tab, tabData, options = {}) {
+    NS_ASSERT(!tab.linkedBrowser.__SS_restoreState,
+              "must reset tab before calling restoreTab()");
+
     let restoreImmediately = options.restoreImmediately;
     let loadArguments = options.loadArguments;
     let browser = tab.linkedBrowser;
@@ -2787,7 +2774,7 @@ let SessionStoreInternal = {
       return;
 
     // Don't exceed the maximum number of concurrent tab restores.
-    if (this._tabsRestoringCount >= this._maxConcurrentTabRestores)
+    if (this._tabsRestoringCount >= MAX_CONCURRENT_TAB_RESTORES)
       return;
 
     let tab = TabRestoreQueue.shift();
@@ -3488,6 +3475,9 @@ let SessionStoreInternal = {
    *        The tab that will be "reset"
    */
   _resetLocalTabRestoringState: function (aTab) {
+    NS_ASSERT(aTab.linkedBrowser.__SS_restoreState,
+              "given tab is not restoring");
+
     let window = aTab.ownerDocument.defaultView;
     let browser = aTab.linkedBrowser;
 
@@ -3512,10 +3502,11 @@ let SessionStoreInternal = {
   },
 
   _resetTabRestoringState: function (tab) {
+    NS_ASSERT(tab.linkedBrowser.__SS_restoreState,
+              "given tab is not restoring");
+
     let browser = tab.linkedBrowser;
-    if (browser.__SS_restoreState) {
-      browser.messageManager.sendAsyncMessage("SessionStore:resetRestore", {});
-    }
+    browser.messageManager.sendAsyncMessage("SessionStore:resetRestore", {});
     this._resetLocalTabRestoringState(tab);
   },
 
