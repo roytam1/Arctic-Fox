@@ -23,7 +23,7 @@ file, You can obtain one at http://mozilla.org/MPL/2.0/. -->
             title="&safeModeDialog.title;"
             buttons="accept,extra1"
             buttonlabelaccept="&startSafeMode.label;"
-            buttonlabelextra1="&refreshProfile.label;"
+            buttonlabelextra1="&resetProfile.label;"
             maxwidth="&window.maxWidth;"
             ondialogaccept="return onDefaultButton()"
             ondialogcancel="onCancel();"
@@ -34,19 +34,30 @@ file, You can obtain one at http://mozilla.org/MPL/2.0/. -->
   <script type="application/javascript" src="chrome://browser/content/safeMode.js"/>
 
   <vbox id="autoSafeMode" hidden="true">
-    <description>&autoSafeModeDescription3.label;</description>
+    <description>&autoSafeModeDescription2.label;</description>
   </vbox>
 
-  <vbox id="safeMode">
+  <vbox id ="safeMode">
     <label>&safeModeDescription3.label;</label>
     <separator class="thin"/>
     <label>&safeModeDescription4.label;</label>
     <separator class="thin"/>
-    <label id="resetProfileInstead">&refreshProfileInstead.label;</label>
+    <label id="resetProfileInstead">&resetProfileInstead.label;</label>
   </vbox>
 
   <vbox id="resetProfile" hidden="true">
-    <label id="resetProfileInstead">&refreshProfileInstead.label;</label>
+    <label>&resetProfile.dialog.items2.label;</label>
+
+    <vbox id="resetProfileItems" class="indent">
+    </vbox>
+
+    <separator class="thin"/>
+
+    <label id="resetProfileFooter">&resetProfileFooter.label;</label>
+
+    <label>&safeModeInstead.label;</label>
+
+    <separator/>
   </vbox>
 
   <separator class="thin"/>

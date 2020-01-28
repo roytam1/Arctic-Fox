@@ -132,8 +132,6 @@ XPCOMUtils.defineLazyModuleGetter(this, "console",
 XPCOMUtils.defineLazyModuleGetter(this, "RecentWindow",
   "resource:///modules/RecentWindow.jsm");
 
-XPCOMUtils.defineLazyModuleGetter(this, "AppConstants",
-  "resource://gre/modules/AppConstants.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "GlobalState",
   "resource:///modules/sessionstore/GlobalState.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "PrivacyFilter",
@@ -487,8 +485,10 @@ let SessionStoreInternal = {
             }
           }
 
-          // Update the session start time using the restored session state.
-          this._updateSessionStartTime(state);
+          // Load the session start time from the previous state
+          this._sessionStartTime = state.session &&
+                                   state.session.startTime ||
+                                   this._sessionStartTime;
 
           // make sure that at least the first window doesn't have anything hidden
           delete state.windows[0].hidden;
@@ -886,7 +886,9 @@ let SessionStoreInternal = {
 
       if (closedWindowState) {
         let newWindowState;
-        if (AppConstants.platform == "macosx" || !this._doResumeSession()) {
+#ifndef XP_MACOSX
+        if (!this._doResumeSession()) {
+#endif
           // We want to split the window up into pinned tabs and unpinned tabs.
           // Pinned tabs should be restored. If there are any remaining tabs,
           // they should be added back to _closedWindows.
@@ -910,6 +912,7 @@ let SessionStoreInternal = {
             delete normalTabsState.windows[0].__lastSessionWindowID;
             this._closedWindows[closedWindowIndex] = normalTabsState.windows[0];
           }
+#ifndef XP_MACOSX
         }
         else {
           // If we're just restoring the window, make sure it gets removed from
@@ -918,7 +921,7 @@ let SessionStoreInternal = {
           newWindowState = closedWindowState;
           delete newWindowState.hidden;
         }
-
+#endif
         if (newWindowState) {
           // Ensure that the window state isn't hidden
           this._restoreCount = 1;
@@ -1073,11 +1076,11 @@ let SessionStoreInternal = {
         SessionCookies.update([winData]);
       }
 
-      if (AppConstants.platform != "macosx") {
-        // Until we decide otherwise elsewhere, this window is part of a series
-        // of closing windows to quit.
-        winData._shouldRestore = true;
-      }
+#ifndef XP_MACOSX
+      // Until we decide otherwise elsewhere, this window is part of a series
+      // of closing windows to quit.
+      winData._shouldRestore = true;
+#endif
 
       // Store the window's close date to figure out when each individual tab
       // was closed. This timestamp should allow re-arranging data based on how
@@ -1997,9 +2000,9 @@ let SessionStoreInternal = {
     // Set data that persists between sessions
     this._recentCrashes = lastSessionState.session &&
                           lastSessionState.session.recentCrashes || 0;
-
-    // Update the session start time using the restored session state.
-    this._updateSessionStartTime(lastSessionState);
+    this._sessionStartTime = lastSessionState.session &&
+                             lastSessionState.session.startTime ||
+                             this._sessionStartTime;
 
     LastSession.clear();
   },
@@ -2182,21 +2185,21 @@ let SessionStoreInternal = {
     // shallow copy this._closedWindows to preserve current state
     let lastClosedWindowsCopy = this._closedWindows.slice();
 
-    if (AppConstants.platform != "macosx") {
-      // If no non-popup browser window remains open, return the state of the last
-      // closed window(s). We only want to do this when we're actually "ending"
-      // the session.
-      //XXXzpao We should do this for _restoreLastWindow == true, but that has
-      //        its own check for popups. c.f. bug 597619
-      if (nonPopupCount == 0 && lastClosedWindowsCopy.length > 0 &&
-          RunState.isQuitting) {
-        // prepend the last non-popup browser window, so that if the user loads more tabs
-        // at startup we don't accidentally add them to a popup window
-        do {
-          total.unshift(lastClosedWindowsCopy.shift())
-        } while (total[0].isPopup && lastClosedWindowsCopy.length > 0)
-      }
+#ifndef XP_MACOSX
+    // If no non-popup browser window remains open, return the state of the last
+    // closed window(s). We only want to do this when we're actually "ending"
+    // the session.
+    //XXXzpao We should do this for _restoreLastWindow == true, but that has
+    //        its own check for popups. c.f. bug 597619
+    if (nonPopupCount == 0 && lastClosedWindowsCopy.length > 0 &&
+        RunState.isQuitting) {
+      // prepend the last non-popup browser window, so that if the user loads more tabs
+      // at startup we don't accidentally add them to a popup window
+      do {
+        total.unshift(lastClosedWindowsCopy.shift())
+      } while (total[0].isPopup && lastClosedWindowsCopy.length > 0)
     }
+#endif
 
     if (activeWindow) {
       this.activeWindowSSiCache = activeWindow.__SSi || "";
@@ -2482,10 +2485,17 @@ let SessionStoreInternal = {
         (overwriteTabs ? (parseInt(winData.selected || "1")) : 0));
     }
 
+#ifdef MOZ_DEVTOOLS
     if (aState.scratchpads) {
       ScratchpadManager.restoreSession(aState.scratchpads);
     }
 
+    // The Browser Console
+    if (aState.browserConsole) {
+      HUDService.restoreBrowserConsoleSession();
+    }
+
+#endif
     // set smoothScroll back to the original value
     tabstrip.smoothScroll = smoothScroll;
 
@@ -2887,20 +2897,6 @@ let SessionStoreInternal = {
   },
 
   /* ........ Auxiliary Functions .............. */
-
-  /**
-   * Update the session start time and send a telemetry measurement
-   * for the number of days elapsed since the session was started.
-   *
-   * @param state
-   *        The session state.
-   */
-  _updateSessionStartTime: function ssi_updateSessionStartTime(state) {
-    // Attempt to load the session start time from the session state
-    if (state.session && state.session.startTime) {
-      this._sessionStartTime = state.session.startTime;
-    }
-  },
 
   /**
    * call a callback for all currently opened browser windows
@@ -3391,15 +3387,15 @@ let SessionStoreInternal = {
     if (this._closedWindows.length <= this._max_windows_undo)
       return;
     let spliceTo = this._max_windows_undo;
-    if (AppConstants.platform != "macosx") {
-      let normalWindowIndex = 0;
-      // try to find a non-popup window in this._closedWindows
-      while (normalWindowIndex < this._closedWindows.length &&
-             !!this._closedWindows[normalWindowIndex].isPopup)
-        normalWindowIndex++;
-      if (normalWindowIndex >= this._max_windows_undo)
-        spliceTo = normalWindowIndex + 1;
-    }
+#ifndef XP_MACOSX
+    let normalWindowIndex = 0;
+    // try to find a non-popup window in this._closedWindows
+    while (normalWindowIndex < this._closedWindows.length &&
+           !!this._closedWindows[normalWindowIndex].isPopup)
+      normalWindowIndex++;
+    if (normalWindowIndex >= this._max_windows_undo)
+      spliceTo = normalWindowIndex + 1;
+#endif
     this._closedWindows.splice(spliceTo, this._closedWindows.length);
   },
 
