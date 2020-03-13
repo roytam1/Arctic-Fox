@@ -870,12 +870,11 @@ class GCRuntime
     // Allocator internals
     bool gcIfNeededPerAllocation(JSContext *cx);
     template <typename T>
-    static void checkIncrementalZoneState(ExclusiveContext *cx, T *t);
-    template <AllowGC allowGC>
-    static void *refillFreeListFromAnyThread(ExclusiveContext *cx, AllocKind thingKind);
-    template <AllowGC allowGC>
-    static void* refillFreeListFromMainThread(JSContext* cx, AllocKind thingKind);
-    static void* tryRefillFreeListFromMainThread(JSContext* cx, AllocKind thingKind);
+    static void checkIncrementalZoneState(ExclusiveContext* cx, T* t);
+    static void* refillFreeListFromAnyThread(ExclusiveContext* cx, AllocKind thingKind,
+                                             size_t thingSize);
+    static void* refillFreeListFromMainThread(JSContext* cx, AllocKind thingKind,
+                                              size_t thingSize);
     static void* refillFreeListOffMainThread(ExclusiveContext* cx, AllocKind thingKind);
 
     /*

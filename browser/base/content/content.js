@@ -561,17 +561,39 @@ let ClickEventHandler = {
   },
 
   onAboutCertError: function (targetElement, ownerDoc) {
+    let docshell = ownerDoc.defaultView.QueryInterface(Ci.nsIInterfaceRequestor)
+                                       .getInterface(Ci.nsIWebNavigation)
+                                       .QueryInterface(Ci.nsIDocShell);
+    let serhelper = Cc["@mozilla.org/network/serialization-helper;1"]
+                     .getService(Ci.nsISerializationHelper);
+    let serializedSSLStatus = "";
+
+    try {
+      let serializable =  docShell.failedChannel.securityInfo
+                                  .QueryInterface(Ci.nsISSLStatusProvider)
+                                  .SSLStatus
+                                  .QueryInterface(Ci.nsISerializable);
+      serializedSSLStatus = serhelper.serializeToString(serializable);
+    } catch (e) { }
+
     sendAsyncMessage("Browser:CertExceptionError", {
       location: ownerDoc.location.href,
       elementId: targetElement.getAttribute("id"),
-      isTopFrame: (ownerDoc.defaultView.parent === ownerDoc.defaultView)
+      isTopFrame: (ownerDoc.defaultView.parent === ownerDoc.defaultView),
+      sslStatusAsString: serializedSSLStatus
     });
   },
 
   onAboutBlocked: function (targetElement, ownerDoc) {
+    var reason = 'phishing';
+    if (/e=malwareBlocked/.test(ownerDoc.documentURI)) {
+      reason = 'malware';
+    } else if (/e=unwantedBlocked/.test(ownerDoc.documentURI)) {
+      reason = 'unwanted';
+    }
     sendAsyncMessage("Browser:SiteBlockedError", {
       location: ownerDoc.location.href,
-      isMalware: /e=malwareBlocked/.test(ownerDoc.documentURI),
+      reason: reason,
       elementId: targetElement.getAttribute("id"),
       isTopFrame: (ownerDoc.defaultView.parent === ownerDoc.defaultView)
     });

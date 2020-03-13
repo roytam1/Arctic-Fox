@@ -161,6 +161,8 @@ XPCOMUtils.defineLazyModuleGetter(this, "TabStateFlusher",
   "resource:///modules/sessionstore/TabStateFlusher.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "Utils",
   "resource:///modules/sessionstore/Utils.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "ViewSourceBrowser",
+  "resource://gre/modules/ViewSourceBrowser.jsm");
 
 /**
  * |true| if we are in debug mode, |false| otherwise.
@@ -631,12 +633,6 @@ let SessionStoreInternal = {
         TabState.setSyncHandler(browser, aMessage.objects.handler);
         break;
       case "SessionStore:update":
-        // Ignore messages from <browser> elements that have crashed
-        // and not yet been revived.
-        if (this._crashedBrowsers.has(browser.permanentKey)) {
-          return;
-        }
-
         // |browser.frameLoader| might be empty if the browser was already
         // destroyed and its tab removed. In that case we still have the last
         // frameLoader we know about to compare.
@@ -647,12 +643,6 @@ let SessionStoreInternal = {
         if (frameLoader != aMessage.targetFrameLoader) {
           return;
         }
-
-        // Record telemetry measurements done in the child and update the tab's
-        // cached state. Mark the window as dirty and trigger a delayed write.
-        this.recordTelemetry(aMessage.data.telemetry);
-        TabState.update(browser, aMessage.data);
-        this.saveStateDelayed(win);
 
         if (aMessage.data.isFinal) {
           // If this the final message we need to resolve all pending flush
@@ -666,6 +656,18 @@ let SessionStoreInternal = {
           // consumer that's waiting for the flush to be done.
           TabStateFlusher.resolve(browser, aMessage.data.flushID);
         }
+
+        // Ignore messages from <browser> elements that have crashed
+        // and not yet been revived.
+        if (this._crashedBrowsers.has(browser.permanentKey)) {
+          return;
+        }
+
+        // Record telemetry measurements done in the child and update the tab's
+        // cached state. Mark the window as dirty and trigger a delayed write.
+        this.recordTelemetry(aMessage.data.telemetry);
+        TabState.update(browser, aMessage.data);
+        this.saveStateDelayed(win);
 
         // Handle any updates sent by the child after the tab was closed. This
         // might be the final update as sent by the "unload" handler but also
@@ -827,6 +829,7 @@ let SessionStoreInternal = {
       case "XULFrameLoaderCreated":
         if (target.tagName == "browser" && target.frameLoader && target.permanentKey) {
           this._lastKnownFrameLoader.set(target.permanentKey, target.frameLoader);
+          this.resetEpoch(target);
         }
         break;
       default:
@@ -2853,6 +2856,12 @@ let SessionStoreInternal = {
     }
     tabbrowser.updateBrowserRemotenessByURL(browser, uri);
 
+    // If the restored browser wants to show view source content, start up a
+    // view source browser that will load the required frame script.
+    if (uri && ViewSourceBrowser.isViewSource(uri)) {
+      new ViewSourceBrowser(browser);
+    }
+
     // Start a new epoch to discard all frame script messages relating to a
     // previous epoch. All async messages that are still on their way to chrome
     // will be ignored and don't override any tab data set when restoring.
@@ -3778,6 +3787,14 @@ let SessionStoreInternal = {
     }
   },
 
+  /**
+   * Resets the epoch for a given <browser>. We need to this every time we
+   * receive a hint that a new docShell has been loaded into the browser as
+   * the frame script starts out with epoch=0.
+   */
+  resetEpoch(browser) {
+    this._browserEpochs.delete(browser.permanentKey);
+  }
 };
 
 /**

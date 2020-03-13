@@ -35,8 +35,10 @@
 - Bug 1245024 - 2016-06-09 - Implement Object.getOwnPropertyDescriptors. r=efaust,bz (check https://forum.manjaro.org/ still works after applying)
 - Bug 1249787 - 2016-02-20 - BaldrMonkey: Fix wasm string hex escape parsing endiann
 - 1219392 - Capitalize mozilla::unused to avoid conflicts
+- Bug 1238290 - 2016-01-09 - fix bad necko deps on unified_sources r=valentin.gosu 
 - Bug 1218882 - 2015-10-28 - lz4.js should be usable outside of workers, r=Yoric.
 - 1207245 - 2015-10-07 part 6 - rename nsRefPtr<T> to RefPtr<T>
+- Bug 1166840 - 2015-05-21 Remove unused document argument in uses of nsIClipboard¿ 
 - Bug 912121 - 2015-09-21 Migrate major DevTools directories. 
 - 1207245 - part 3 - switch all uses of mozilla::RefPtr<T> to nsRefPtr<T>
 - Bug 1197316 - 2015-08-23 - Remove PR_snprintf calls in xpcom/. r=froydnj 
@@ -100,22 +102,6 @@
 - Bug 1147491, part 2 - Disable use of BaseTimeDuration::operator/ w
 - Bug 1147491, part 1 - Fix playbackRate crash due to integer rounding 
 - Bug 1072037, part 3 - Tests for the effect of setting CSS transition
-- Bug 1054755 - Part 3: Use IsRegExp in String.prototype.
-- Bug 1054755 - Part 2: Implement IsRegExp.
-- Bug 1054755 - Part 1: Add Symbol.match
-- Bug 1054755 - Part 0: Rename existing IsRegExp to IsRegExpObject.
-- Bug 1005110 - Warn about unreachable expression after semicolon-less
-- Bug 1148899 - Rename isExprClosure/setIsExprClosure/EXPR_CLOSURE
-- Bug 1149015 - Part 3: Remove some use of expression closure from jit
-- Bug 1149015 - Part 2: Remove some use of expression closure from jste
-- Bug 1149015 - Part 1: Remove some use of expression closure from jste
-- Bug 1149135 - Don't create HashMapEntry on stack when adding to a Has
-- Bug 1146696 - Don't assume there are no arenas available after last d
-  https://github.com/mozilla/newtab-dev/commit/6131f67cc897e7dfc56621a31b11b8c3f894f5dd
-
-- Bug 1148214 - Replace manual AllocKind range checks with a few centra
-
-- Bug 1110888 - Always do plugin IME in main process, even with e10s. r
 
 More session store stuff to check:
 
@@ -129,7 +115,8 @@ More session store stuff to check:
 
 - Bug 1177310 - TabStateFlusher Promises should always resolve.
 
-- Bug 1167508 - Reset epoch when receiving XULFrameLoaderCreated r=billm
+Bug 1177310 - Don't flush windows synchronously on application shutdo
+
 
 
 - Bug 785487 - Have AboutHomeUtils use the asynchronous search service
@@ -150,7 +137,7 @@ What with LightweightThemeConsumer.jsm
 Parents of:
 https://github.com/mozilla/newtab-dev/commit/1e817a57be5457816f23e2221bdcb1dd44ac7325
 
-https://github.com/mozilla/newtab-dev/commit/b35c2674a24b7078cfff4c374dde4006b503cd6d
+
 
 To verify:
 - Bug 1133140 - Move runtime heap size limit checks up to GCIfNeeded;
@@ -164,11 +151,6 @@ To verify:
 Analyze all:
 https://bugzilla.mozilla.org/show_bug.cgi?id=1139700
 https://github.com/mozilla/gecko-dev/commits/04bd6d2255ca35057a7f8d18fc03e908d02f6907?after=04bd6d2255ca35057a7f8d18fc03e908d02f6907+454&path%5B%5D=dom
-
-Check ApplicationReputation.cpp which is missing, possibly from here:
-Bug 837199 - Write interface to query application reputation 
-
-no components/url-classifier ?
 
 Why is "hack" in  dom/base/ThirdPartyUtil.cpp needed to import nsPIDOMWindow ?
 
