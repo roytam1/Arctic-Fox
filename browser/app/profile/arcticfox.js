@@ -37,16 +37,6 @@ pref("extensions.strictCompatibility", false);
 // for it to be compatible by default.
 pref("extensions.minCompatibleAppVersion", "1.5");
 
-// Preferences for AMO integration
-pref("extensions.getAddons.cache.enabled", true);
-pref("extensions.getAddons.maxResults", 15);
-pref("extensions.getAddons.get.url", "https://services.addons.mozilla.org/%LOCALE%/firefox/api/%API_VERSION%/search/guid:%IDS%?src=firefox&appOS=%OS%&appVersion=%VERSION%");
-pref("extensions.getAddons.getWithPerformance.url", "https://services.addons.mozilla.org/%LOCALE%/firefox/api/%API_VERSION%/search/guid:%IDS%?src=firefox&appOS=%OS%&appVersion=%VERSION%&tMain=%TIME_MAIN%&tFirstPaint=%TIME_FIRST_PAINT%&tSessionRestored=%TIME_SESSION_RESTORED%");
-pref("extensions.getAddons.search.browseURL", "https://addons.mozilla.org/%LOCALE%/firefox/search?q=%TERMS%&platform=%OS%&appver=%VERSION%");
-pref("extensions.getAddons.search.url", "https://services.addons.mozilla.org/%LOCALE%/firefox/api/%API_VERSION%/search/%TERMS%/all/%MAX_RESULTS%/%OS%/%VERSION%/%COMPATIBILITY_MODE%?src=firefox");
-pref("extensions.webservice.discoverURL", "https://services.addons.mozilla.org/%LOCALE%/firefox/discovery/pane/%VERSION%/%OS%/%COMPATIBILITY_MODE%");
-pref("extensions.getAddons.recommended.url", "https://services.addons.mozilla.org/%LOCALE%/%APP%/api/%API_VERSION%/list/recommended/all/%MAX_RESULTS%/%OS%/%VERSION%?src=firefox");
-
 // Blocklist preferences
 pref("extensions.blocklist.enabled", true);
 pref("extensions.blocklist.interval", 86400);
@@ -65,10 +55,10 @@ pref("extensions.update.autoUpdateDefault", true);
 pref("extensions.autoDisableScopes", 15);
 
 // Dictionary download preference
-pref("browser.dictionaries.download.url", "https://addons.mozilla.org/%LOCALE%/firefox/dictionaries/");
+pref("browser.dictionaries.download.url", "http://repository.binaryoutcast.com/dicts/");
 
 // Get More Tools link URL
-pref("browser.getdevtools.url","https://addons.mozilla.org/firefox/collections/mozilla/webdeveloper/");
+pref("browser.getdevtools.url","https://addons.palemoon.org/extensions/web-development/");
 
 // Feedback URL
 pref("browser.feedback.url", "https://forums.macrumors.com/threads/arctic-fox-web-browser-for-10-6-64bit.2133051/");
@@ -248,6 +238,7 @@ pref("browser.slowStartup.timeThreshold", 60000);
 pref("browser.slowStartup.maxSamples", 5);
 
 pref("browser.enable_automatic_image_resizing", true);
+pref("browser.casting.enabled", true);
 pref("browser.chrome.site_icons", true);
 pref("browser.chrome.favicons", true);
 // browser.warnOnQuit == false will override all other possible prompts when quitting or restarting
@@ -344,7 +335,7 @@ pref("browser.download.panel.shown", false);
 pref("browser.download.panel.firstSessionCompleted", false);
 
 // search engines URL
-pref("browser.search.searchEnginesURL",      "https://addons.mozilla.org/%LOCALE%/firefox/search-engines/");
+pref("browser.search.searchEnginesURL",      "https://addons.palemoon.org/search-plugins/");
 
 // pointer to the default engine name
 pref("browser.search.defaultenginename",      "chrome://browser-region/locale/region.properties");
@@ -426,13 +417,12 @@ pref("browser.tabs.loadBookmarksInBackground", false);
 pref("browser.tabs.noWindowActivationOnExternal", false);
 pref("browser.tabs.tabClipWidth", 140);
 pref("browser.tabs.animate", true);
-pref("browser.tabs.onTop", true);
+pref("browser.tabs.onTop", false); // Put tabs back on the bottom where they belong.
 #ifdef XP_WIN
 pref("browser.tabs.drawInTitlebar", true);
 #else
 pref("browser.tabs.drawInTitlebar", false);
 #endif
-pref("browser.tabs.resize_immediately", false);
 
 // Where to show tab close buttons:
 // 0  on active tab only
@@ -503,7 +493,7 @@ pref("privacy.clearOnShutdown.cache",       true);
 pref("privacy.clearOnShutdown.sessions",    true);
 pref("privacy.clearOnShutdown.offlineApps", false);
 pref("privacy.clearOnShutdown.siteSettings", false);
-pref("privacy.clearOnShutdown.connectivityData", false);
+pref("privacy.clearOnShutdown.openWindows", false);
 
 pref("privacy.cpd.history",                 true);
 pref("privacy.cpd.formdata",                true);
@@ -514,7 +504,7 @@ pref("privacy.cpd.cache",                   true);
 pref("privacy.cpd.sessions",                true);
 pref("privacy.cpd.offlineApps",             false);
 pref("privacy.cpd.siteSettings",            false);
-pref("privacy.cpd.connectivityData",        false);
+pref("privacy.cpd.openWindows",             false);
 
 // What default should we use for the time span in the sanitizer:
 // 0 - Clear everything
@@ -522,10 +512,14 @@ pref("privacy.cpd.connectivityData",        false);
 // 2 - Last 2 Hours
 // 3 - Last 4 Hours
 // 4 - Today
+// 5 - Last 5 minutes
+// 6 - Last 24 hours
 pref("privacy.sanitize.timeSpan", 1);
 pref("privacy.sanitize.sanitizeOnShutdown", false);
 
 pref("privacy.sanitize.migrateFx3Prefs",    false);
+
+pref("privacy.panicButton.enabled",         true);
 
 pref("network.proxy.share_proxy_settings",  false); // use the same proxy settings for all protocols
 
@@ -1063,7 +1057,6 @@ pref("services.sync.prefs.sync.privacy.clearOnShutdown.offlineApps", true);
 pref("services.sync.prefs.sync.privacy.clearOnShutdown.passwords", true);
 pref("services.sync.prefs.sync.privacy.clearOnShutdown.sessions", true);
 pref("services.sync.prefs.sync.privacy.clearOnShutdown.siteSettings", true);
-pref("services.sync.prefs.sync.privacy.clearOnShutdown.connectivityData", true);
 pref("services.sync.prefs.sync.privacy.donottrackheader.enabled", true);
 pref("services.sync.prefs.sync.privacy.donottrackheader.value", true);
 pref("services.sync.prefs.sync.privacy.sanitize.sanitizeOnShutdown", true);
@@ -1163,6 +1156,9 @@ pref("geo.provider.use_corelocation", true);
 // currently irrelevant for desktop e10s
 pref("network.disable.ipc.security", true);
 
+// Disable ReadingList by default.
+pref("browser.readinglist.enabled", false);
+
 // Telemetry settings.
 // Determines if Telemetry pings can be archived locally.
 pref("toolkit.telemetry.archive.enabled", true);
@@ -1173,6 +1169,9 @@ pref("toolkit.telemetry.optoutSample", true);
 pref("browser.display.standalone_images.background_color", "#2E3B41");
 
 pref("view_source.tab", true);
+
+// Disable reader mode by default.
+pref("reader.parse-on-load.enabled", false);
 
 // ****************** domain-specific UAs ******************
 
