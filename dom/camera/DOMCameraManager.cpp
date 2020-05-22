@@ -16,8 +16,10 @@
 #include "DOMCameraControl.h"
 #include "nsDOMClassInfo.h"
 #include "CameraCommon.h"
+#include "CameraPreferences.h"
 #include "mozilla/dom/BindingUtils.h"
 #include "mozilla/dom/PermissionMessageUtils.h"
+#include "nsQueryObject.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -298,7 +300,11 @@ nsDOMCameraManager::GetCamera(const nsAString& aCamera,
   // which gets us a performance win.
   uint16_t status = nsIPrincipal::APP_STATUS_NOT_INSTALLED;
   principal->GetAppStatus(&status);
-  if (status == nsIPrincipal::APP_STATUS_CERTIFIED && CheckPermission(mWindow)) {
+  // Unprivileged mochitests always fail the dispatched permission check,
+  // even if permission to the camera has been granted.
+  bool immediateCheck = false;
+  CameraPreferences::GetPref("camera.control.test.permission", immediateCheck);
+  if ((status == nsIPrincipal::APP_STATUS_CERTIFIED || immediateCheck) && CheckPermission(mWindow)) {
     PermissionAllowed(cameraId, aInitialConfig, promise);
     return promise.forget();
   }

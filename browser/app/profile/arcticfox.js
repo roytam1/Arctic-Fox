@@ -914,7 +914,11 @@ pref("dom.ipc.plugins.enabled.x86_64", true);
 pref("dom.ipc.plugins.enabled", true);
 #endif
 
-pref("browser.tabs.remote", false);
+pref("dom.ipc.shims.enabledWarnings", false);
+
+// Start the browser in e10s mode
+pref("browser.tabs.remote.autostart", false);
+pref("browser.tabs.remote.desktopbehavior", true);
 
 #if defined(XP_WIN) && defined(MOZ_SANDBOX)
 // When this pref is true the Windows process sandbox will set up dummy

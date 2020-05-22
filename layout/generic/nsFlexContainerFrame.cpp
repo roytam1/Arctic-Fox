@@ -17,7 +17,7 @@
 #include "nsPresContext.h"
 #include "nsRenderingContext.h"
 #include "nsStyleContext.h"
-#include "prlog.h"
+#include "mozilla/Logging.h"
 #include <algorithm>
 #include "mozilla/LinkedList.h"
 #include "mozilla/FloatingPoint.h"
@@ -32,7 +32,6 @@ typedef nsFlexContainerFrame::FlexLine FlexLine;
 typedef nsFlexContainerFrame::FlexboxAxisTracker FlexboxAxisTracker;
 typedef nsFlexContainerFrame::StrutInfo StrutInfo;
 
-#ifdef PR_LOGGING
 static PRLogModuleInfo*
 GetFlexContainerLog()
 {
@@ -41,7 +40,6 @@ GetFlexContainerLog()
     sLog = PR_NewLogModule("nsFlexContainerFrame");
   return sLog;
 }
-#endif /* PR_LOGGING */
 
 // XXXdholbert Some of this helper-stuff should be separated out into a general
 // "LogicalAxisUtils.h" helper.  Should that be a class, or a namespace (under
@@ -3386,6 +3384,7 @@ nsFlexContainerFrame::Reflow(nsPresContext*           aPresContext,
                              const nsHTMLReflowState& aReflowState,
                              nsReflowStatus&          aStatus)
 {
+  MarkInReflow();
   DO_GLOBAL_REFLOW_COUNT("nsFlexContainerFrame");
   DISPLAY_REFLOW(aPresContext, this, aReflowState, aDesiredSize, aStatus);
   PR_LOG(GetFlexContainerLog(), PR_LOG_DEBUG,

@@ -602,7 +602,7 @@ ShadowLayerForwarder::EndTransaction(InfallibleTArray<EditReply>* aReplies,
     common.opacity() = mutant->GetOpacity();
     common.useClipRect() = !!mutant->GetClipRect();
     common.clipRect() = (common.useClipRect() ?
-                         *mutant->GetClipRect() : nsIntRect());
+                         *mutant->GetClipRect() : ParentLayerIntRect());
     common.isFixedPosition() = mutant->GetIsFixedPosition();
     common.fixedPositionAnchor() = mutant->GetFixedPositionAnchor();
     common.fixedPositionMargin() = mutant->GetFixedPositionMargins();
@@ -753,7 +753,7 @@ ShadowLayerForwarder::IsSameProcess() const
   if (!HasShadowManager() || !mShadowManager->IPCOpen()) {
     return false;
   }
-  return mShadowManager->OtherPid() == kCurrentProcessId;
+  return mShadowManager->OtherPid() == base::GetCurrentProcId();
 }
 
 /**

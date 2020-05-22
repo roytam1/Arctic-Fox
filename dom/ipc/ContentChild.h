@@ -20,7 +20,6 @@
 
 
 struct ChromePackage;
-class nsIDOMBlob;
 class nsIObserver;
 struct ResourceMapping;
 struct OverrideMapping;
@@ -35,10 +34,6 @@ class PFileDescriptorSetChild;
 class URIParams;
 }// namespace ipc
 
-namespace jsipc {
-class JavaScriptShared;
-}
-
 namespace layers {
 class PCompositorChild;
 } // namespace layers
@@ -46,7 +41,6 @@ class PCompositorChild;
 namespace dom {
 
 class AlertObserver;
-class PrefObserver;
 class ConsoleListener;
 class PStorageChild;
 class ClonedMessageData;
@@ -114,6 +108,10 @@ public:
     PContentBridgeChild*
     AllocPContentBridgeChild(mozilla::ipc::Transport* transport,
                              base::ProcessId otherProcess) override;
+
+    PGMPServiceChild*
+    AllocPGMPServiceChild(mozilla::ipc::Transport* transport,
+                          base::ProcessId otherProcess) override;
 
     PCompositorChild*
     AllocPCompositorChild(mozilla::ipc::Transport* aTransport,
@@ -226,6 +224,10 @@ public:
                              bool* aSuccess) override;
     virtual bool DeallocPScreenManagerChild(PScreenManagerChild*) override;
 
+    virtual PPSMContentDownloaderChild* AllocPPSMContentDownloaderChild(
+            const uint32_t& aCertType) override;
+    virtual bool DeallocPPSMContentDownloaderChild(PPSMContentDownloaderChild* aDownloader) override;
+
     virtual PExternalHelperAppChild *AllocPExternalHelperAppChild(
             const OptionalURIParams& uri,
             const nsCString& aMimeContentType,
@@ -288,6 +290,8 @@ public:
     virtual bool RecvSpeakerManagerNotify() override;
 
     virtual bool RecvUpdateServiceWorkerRegistrations() override;
+
+    virtual bool RecvBidiKeyboardNotify(const bool& isLangRTL) override;
 
     virtual bool RecvNotifyVisited(const URIParams& aURI) override;
     // auto remove when alertfinished is received.
@@ -386,6 +390,11 @@ public:
                                       const OptionalURIParams& aDomain) override;
     virtual bool RecvShutdown() override;
 
+    virtual bool
+    RecvInvokeDragSession(nsTArray<IPCDataTransfer>&& aTransfers,
+                          const uint32_t& aAction) override;
+    virtual bool RecvEndDragSession(const bool& aDoneDrag,
+                                    const bool& aUserCancelled) override;
 #ifdef ANDROID
     gfxIntSize GetScreenSize() { return mScreenSize; }
 #endif
