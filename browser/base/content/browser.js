@@ -15,6 +15,8 @@ XPCOMUtils.defineLazyModuleGetter(this, "Preferences",
                                   "resource://gre/modules/Preferences.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "Deprecated",
                                   "resource://gre/modules/Deprecated.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "BrowserUITelemetry",
+                                  "resource:///modules/BrowserUITelemetry.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "E10SUtils",
                                   "resource:///modules/E10SUtils.jsm");
 
@@ -111,6 +113,9 @@ this.__defineSetter__("PluralForm", function (val) {
   delete this.PluralForm;
   return this.PluralForm = val;
 });
+
+XPCOMUtils.defineLazyModuleGetter(this, "TelemetryStopwatch",
+  "resource://gre/modules/TelemetryStopwatch.jsm");
 
 #ifdef MOZ_SERVICES_SYNC
 XPCOMUtils.defineLazyModuleGetter(this, "Weave",
@@ -3257,11 +3262,11 @@ const BrowserSearch = {
    *        allows the search service to provide a different nsISearchSubmission
    *        depending on e.g. where the search is triggered in the UI.
    *
-   * @return string Name of the search engine used to perform a search or null
-   *         if a search was not performed.
+   * @return engine The search engine used to perform a search, or null if no
+   *                search was performed.
    */
-  loadSearch: function BrowserSearch_search(searchText, useNewTab, purpose) {
-    var engine;
+  _loadSearch: function (searchText, useNewTab, purpose) {
+    let engine;
 
     // If the search bar is visible, use the current engine, otherwise, fall
     // back to the default engine.
@@ -3270,7 +3275,7 @@ const BrowserSearch = {
     else
       engine = Services.search.defaultEngine;
 
-    var submission = engine.getSubmission(searchText, null, purpose); // HTML response
+    let submission = engine.getSubmission(searchText, null, purpose); // HTML response
 
     // getSubmission can return null if the engine doesn't have a URL
     // with a text/html response type.  This is unlikely (since
@@ -3287,6 +3292,20 @@ const BrowserSearch = {
                  inBackground: inBackground,
                  relatedToCurrent: true });
 
+   return engine;
+  },
+
+  /**
+   * Just like _loadSearch, but preserving an old API.
+   *
+   * @return string Name of the search engine used to perform a search or null
+   *         if a search was not performed.
+   */
+  loadSearch: function BrowserSearch_search(searchText, useNewTab, purpose) {
+    let engine = BrowserSearch._loadSearch(searchText, useNewTab, purpose);
+    if (!engine) {
+      return null;
+    }
     return engine.name;
   },
 
@@ -3297,7 +3316,10 @@ const BrowserSearch = {
    * BrowserSearch.loadSearch for the preferred API.
    */
   loadSearchFromContext: function (terms) {
-    let engine = BrowserSearch.loadSearch(terms, true, "contextmenu");
+    let engine = BrowserSearch._loadSearch(terms, true, "contextmenu");
+    if (engine) {
+      BrowserSearch.recordSearchInHealthReport(engine, "contextmenu");
+    }
   },
 
   /**
@@ -3312,6 +3334,45 @@ const BrowserSearch = {
     var where = newWindowPref == 3 ? "tab" : "window";
     var searchEnginesURL = formatURL("browser.search.searchEnginesURL", true);
     openUILinkIn(searchEnginesURL, where);
+  },
+
+/**
+   * Helper to record a search with Firefox Health Report.
+   *
+   * FHR records only search counts and nothing pertaining to the search itself.
+   *
+   * @param engine
+   *        (nsISearchEngine) The engine handling the search.
+   * @param source
+   *        (string) Where the search originated from. See the FHR
+   *        SearchesProvider for allowed values.
+   * @param selection [optional]
+   *        ({index: The selected index, kind: "key" or "mouse"}) If
+   *        the search was a suggested search, this indicates where the
+   *        item was in the suggestion list and how the user selected it.
+   */
+  recordSearchInHealthReport: function (engine, source, selection) {
+//    BrowserUITelemetry.countSearchEvent(source, null, selection);
+#ifdef MOZ_SERVICES_HEALTHREPORT
+    let reporter = Cc["@mozilla.org/datareporting/service;1"]
+                     .getService()
+                     .wrappedJSObject
+                     .healthReporter;
+
+    // This can happen if the FHR component of the data reporting service is
+    // disabled. This is controlled by a pref that most will never use.
+    if (!reporter) {
+      return;
+    }
+
+    reporter.onInit().then(function record() {
+      try {
+        reporter.getProvider("org.mozilla.searches").recordSearch(engine, source);
+      } catch (ex) {
+        Cu.reportError(ex);
+      }
+    });
+#endif
   },
 };
 
