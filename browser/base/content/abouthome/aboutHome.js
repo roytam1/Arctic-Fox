@@ -273,10 +273,11 @@ function onSearchSubmit(aEvent)
   if (engineName && searchTerms.length > 0) {
     // Send an event that will perform a search and Firefox Health Report will
     // record that a search from about:home has occurred.
-
+    let useNewTab = aEvent && aEvent.button == 1;
     let eventData = {
       engineName: engineName,
-      searchTerms: searchTerms
+      searchTerms: searchTerms,
+      useNewTab: useNewTab,
     };
 
     if (searchText.hasAttribute("selection-index")) {
@@ -292,9 +293,15 @@ function onSearchSubmit(aEvent)
     document.dispatchEvent(event);
   }
 
-  aEvent.preventDefault();
+  gSearchSuggestionController.addInputValueToFormHistory();
+
+  if (aEvent) {
+    aEvent.preventDefault();
+  }
 }
 
+
+let gSearchSuggestionController;
 
 function setupSearchEngine()
 {
@@ -323,6 +330,12 @@ function setupSearchEngine()
     searchText.placeholder = searchEngineName;
   }
 
+  if (!gSearchSuggestionController) {
+    gSearchSuggestionController =
+      new SearchSuggestionUIController(searchText, searchText.parentNode,
+                                       onSearchSubmit);
+  }
+  gSearchSuggestionController.engineName = searchEngineName;
 }
 
 function fitToWidth() {

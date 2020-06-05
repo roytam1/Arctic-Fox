@@ -214,6 +214,7 @@ static void Shutdown();
 #include "mozilla/dom/nsCSPService.h"
 #include "mozilla/dom/nsCSPContext.h"
 #include "nsICellBroadcastService.h"
+#include "nsIIccService.h"
 #include "nsISmsService.h"
 #include "nsIMmsService.h"
 #include "nsIMobileConnectionService.h"
@@ -240,6 +241,11 @@ static void Shutdown();
 #include "mozilla/dom/TVServiceFactory.h"
 #include "mozilla/dom/TVTypes.h"
 #include "nsITVService.h"
+
+#include "FakeInputPortService.h"
+#include "InputPortData.h"
+#include "InputPortServiceFactory.h"
+#include "nsIInputPortService.h"
 
 #ifdef MOZ_WIDGET_GONK
 #include "GonkGPSGeolocationProvider.h"
@@ -342,6 +348,7 @@ NS_GENERIC_FACTORY_SINGLETON_CONSTRUCTOR(nsICellBroadcastService,
                                          NS_CreateCellBroadcastService)
 NS_GENERIC_FACTORY_SINGLETON_CONSTRUCTOR(nsISmsService, NS_CreateSmsService)
 #endif
+NS_GENERIC_FACTORY_SINGLETON_CONSTRUCTOR(nsIIccService, NS_CreateIccService)
 NS_GENERIC_FACTORY_SINGLETON_CONSTRUCTOR(nsIMmsService, NS_CreateMmsService)
 NS_GENERIC_FACTORY_SINGLETON_CONSTRUCTOR(nsIMobileMessageService,
                                          NS_CreateMobileMessageService)
@@ -389,7 +396,9 @@ NS_GENERIC_FACTORY_CONSTRUCTOR(TVChannelData)
 NS_GENERIC_FACTORY_CONSTRUCTOR(TVProgramData)
 NS_GENERIC_FACTORY_CONSTRUCTOR(PresentationDeviceManager)
 NS_GENERIC_FACTORY_CONSTRUCTOR(TextInputProcessor)
-
+NS_GENERIC_FACTORY_SINGLETON_CONSTRUCTOR(FakeInputPortService,
+                                         InputPortServiceFactory::CreateFakeInputPortService)
+NS_GENERIC_FACTORY_CONSTRUCTOR(InputPortData)
 //-----------------------------------------------------------------------------
 
 static bool gInitialized = false;
@@ -803,6 +812,7 @@ NS_DEFINE_NAMED_CID(NS_VOICEMAIL_SERVICE_CID);
 NS_DEFINE_NAMED_CID(NS_MOBILE_CONNECTION_SERVICE_CID);
 NS_DEFINE_NAMED_CID(SMS_SERVICE_CID);
 #endif
+NS_DEFINE_NAMED_CID(ICC_SERVICE_CID);
 NS_DEFINE_NAMED_CID(MMS_SERVICE_CID);
 NS_DEFINE_NAMED_CID(MOBILE_MESSAGE_SERVICE_CID);
 NS_DEFINE_NAMED_CID(MOBILE_MESSAGE_DATABASE_SERVICE_CID);
@@ -831,6 +841,9 @@ NS_DEFINE_NAMED_CID(FAKE_TV_SERVICE_CID);
 NS_DEFINE_NAMED_CID(TV_TUNER_DATA_CID);
 NS_DEFINE_NAMED_CID(TV_CHANNEL_DATA_CID);
 NS_DEFINE_NAMED_CID(TV_PROGRAM_DATA_CID);
+
+NS_DEFINE_NAMED_CID(FAKE_INPUTPORT_SERVICE_CID);
+NS_DEFINE_NAMED_CID(INPUTPORT_DATA_CID);
 
 NS_DEFINE_NAMED_CID(GECKO_MEDIA_PLUGIN_SERVICE_CID);
 
@@ -1098,6 +1111,7 @@ static const mozilla::Module::CIDEntry kLayoutCIDs[] = {
   { &kCELLBROADCAST_SERVICE_CID, false, nullptr, nsICellBroadcastServiceConstructor },
   { &kSMS_SERVICE_CID, false, nullptr, nsISmsServiceConstructor },
 #endif
+  { &kICC_SERVICE_CID, false, nullptr, nsIIccServiceConstructor },
   { &kMMS_SERVICE_CID, false, nullptr, nsIMmsServiceConstructor },
   { &kMOBILE_MESSAGE_SERVICE_CID, false, nullptr, nsIMobileMessageServiceConstructor },
   { &kMOBILE_MESSAGE_DATABASE_SERVICE_CID, false, nullptr, nsIMobileMessageDatabaseServiceConstructor },
@@ -1132,6 +1146,8 @@ static const mozilla::Module::CIDEntry kLayoutCIDs[] = {
   { &kTV_PROGRAM_DATA_CID, false, nullptr, TVProgramDataConstructor },
   { &kPRESENTATION_DEVICE_MANAGER_CID, false, nullptr, PresentationDeviceManagerConstructor },
   { &kTEXT_INPUT_PROCESSOR_CID, false, nullptr, TextInputProcessorConstructor },
+  { &kFAKE_INPUTPORT_SERVICE_CID, false, nullptr, FakeInputPortServiceConstructor },
+  { &kINPUTPORT_DATA_CID, false, nullptr, InputPortDataConstructor },
   { nullptr }
 };
 
@@ -1262,6 +1278,7 @@ static const mozilla::Module::ContractIDEntry kLayoutContracts[] = {
   { CELLBROADCAST_SERVICE_CONTRACTID, &kCELLBROADCAST_SERVICE_CID },
   { SMS_SERVICE_CONTRACTID, &kSMS_SERVICE_CID },
 #endif
+  { ICC_SERVICE_CONTRACTID, &kICC_SERVICE_CID },
   { MMS_SERVICE_CONTRACTID, &kMMS_SERVICE_CID },
   { MOBILE_MESSAGE_SERVICE_CONTRACTID, &kMOBILE_MESSAGE_SERVICE_CID },
   { MOBILE_MESSAGE_DATABASE_SERVICE_CONTRACTID, &kMOBILE_MESSAGE_DATABASE_SERVICE_CID },
@@ -1299,6 +1316,8 @@ static const mozilla::Module::ContractIDEntry kLayoutContracts[] = {
 #endif
   { PRESENTATION_DEVICE_MANAGER_CONTRACTID, &kPRESENTATION_DEVICE_MANAGER_CID },
   { "@mozilla.org/text-input-processor;1", &kTEXT_INPUT_PROCESSOR_CID },
+  { FAKE_INPUTPORT_SERVICE_CONTRACTID, &kFAKE_INPUTPORT_SERVICE_CID },
+  { INPUTPORT_DATA_CONTRACTID, &kINPUTPORT_DATA_CID },
   { nullptr }
 };
 
