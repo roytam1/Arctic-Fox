@@ -1,4 +1,5 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
+/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
+/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -187,10 +188,10 @@ void
 MultipartFileImpl::SetLengthAndModifiedDate()
 {
   MOZ_ASSERT(mLength == UINT64_MAX);
-  MOZ_ASSERT(mLastModificationDate == UINT64_MAX);
+  MOZ_ASSERT(mLastModificationDate == INT64_MAX);
 
   uint64_t totalLength = 0;
-  uint64_t lastModified = 0;
+  int64_t lastModified = 0;
   bool lastModifiedSet = false;
 
   for (uint32_t index = 0, count = mBlobImpls.Length(); index < count; index++) {
@@ -209,7 +210,7 @@ MultipartFileImpl::SetLengthAndModifiedDate()
     totalLength += subBlobLength;
 
     if (blob->IsFile()) {
-      uint64_t partLastModified = blob->GetLastModified(error);
+      int64_t partLastModified = blob->GetLastModified(error);
       MOZ_ALWAYS_TRUE(!error.Failed());
 
       if (lastModified < partLastModified) {
@@ -365,7 +366,8 @@ MultipartFileImpl::InitializeChromeFile(nsPIDOMWindow* aWindow,
   }
 
   // Pre-cache modified date.
-  aRv = blob->GetMozLastModifiedDate(&unused);
+  int64_t unusedDate;
+  aRv = blob->GetMozLastModifiedDate(&unusedDate);
   if (NS_WARN_IF(aRv.Failed())) {
     return;
   }
