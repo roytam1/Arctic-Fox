@@ -652,12 +652,16 @@ private:
 
     virtual bool RecvReadPermissions(InfallibleTArray<IPC::Permission>* aPermissions) override;
 
-    virtual bool RecvSetClipboardText(const nsString& text,
-                                      const bool& isPrivateData,
-                                      const int32_t& whichClipboard) override;
-    virtual bool RecvGetClipboardText(const int32_t& whichClipboard, nsString* text) override;
-    virtual bool RecvEmptyClipboard(const int32_t& whichClipboard) override;
-    virtual bool RecvClipboardHasText(const int32_t& whichClipboard, bool* hasText) override;
+    virtual bool RecvSetClipboard(const IPCDataTransfer& aDataTransfer,
+                                  const bool& aIsPrivateData,
+                                  const int32_t& aWhichClipboard) override;
+    virtual bool RecvGetClipboard(nsTArray<nsCString>&& aTypes,
+                                  const int32_t& aWhichClipboard,
+                                  IPCDataTransfer* aDataTransfer) override;
+    virtual bool RecvEmptyClipboard(const int32_t& aWhichClipboard) override;
+    virtual bool RecvClipboardHasType(nsTArray<nsCString>&& aTypes,
+                                      const int32_t& aWhichClipboard,
+                                      bool* aHasType) override;
 
     virtual bool RecvGetSystemColors(const uint32_t& colorsCount,
                                      InfallibleTArray<uint32_t>* colors) override;
@@ -825,6 +829,10 @@ private:
     virtual bool DeallocPDocAccessibleParent(PDocAccessibleParent*) override;
     virtual bool RecvPDocAccessibleConstructor(PDocAccessibleParent* aDoc,
                                                PDocAccessibleParent* aParentDoc, const uint64_t& aParentID) override;
+
+    virtual PWebrtcGlobalParent* AllocPWebrtcGlobalParent() override;
+    virtual bool DeallocPWebrtcGlobalParent(PWebrtcGlobalParent *aActor) override;
+
 
     virtual bool RecvUpdateDropEffect(const uint32_t& aDragAction,
                                       const uint32_t& aDropEffect) override;

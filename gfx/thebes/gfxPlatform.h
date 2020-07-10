@@ -395,7 +395,7 @@ public:
 
     /**
      * True when hinting should be enabled.  This setting shouldn't
-     * change per goanna process, while the process is live.  If so the
+     * change per gecko process, while the process is live.  If so the
      * results are not defined.
      *
      * NB: this bit is only honored by the FT2 backend, currently.
@@ -411,7 +411,7 @@ public:
      * is only true for the browser process, not Gaia or other apps.
      *
      * Like FontHintingEnabled (above), this setting shouldn't
-     * change per goanna process, while the process is live.  If so the
+     * change per gecko process, while the process is live.  If so the
      * results are not defined.
      *
      * NB: this bit is only honored by the FT2 backend, currently.
@@ -617,10 +617,10 @@ public:
     /**
      * Used to test which input types are handled via APZ.
      */
-    virtual bool SupportsApzWheelInput() {
+    virtual bool SupportsApzWheelInput() const {
       return false;
     }
-    virtual bool SupportsApzTouchInput() {
+    virtual bool SupportsApzTouchInput() const {
       return false;
     }
 

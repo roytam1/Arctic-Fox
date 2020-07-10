@@ -212,7 +212,7 @@ BuildClonedMessageData(typename BlobTraits<Flavor>::ConcreteContentManagerType* 
   SerializedStructuredCloneBuffer& buffer = aClonedData.data();
   buffer.data = aData.mData;
   buffer.dataLength = aData.mDataLength;
-  const nsTArray<nsRefPtr<File>>& blobs = aData.mClosure.mBlobs;
+  const nsTArray<nsRefPtr<Blob>>& blobs = aData.mClosure.mBlobs;
   if (!blobs.IsEmpty()) {
     typedef typename BlobTraits<Flavor>::ProtocolType ProtocolType;
     InfallibleTArray<ProtocolType*>& blobList = DataBlobs<Flavor>::Blobs(aClonedData);
@@ -269,7 +269,7 @@ UnpackClonedMessageData(const ClonedMessageData& aData)
 
       // This object will be duplicated with a correct parent before being
       // exposed to JS.
-      nsRefPtr<File> domBlob = new File(nullptr, blobImpl);
+      nsRefPtr<Blob> domBlob = Blob::Create(nullptr, blobImpl);
       cloneData.mClosure.mBlobs.AppendElement(domBlob);
     }
   }
@@ -815,7 +815,7 @@ NS_IMETHODIMP
 nsFrameMessageManager::Dump(const nsAString& aStr)
 {
 #ifdef ANDROID
-  __android_log_print(ANDROID_LOG_INFO, "Goanna", "%s", NS_ConvertUTF16toUTF8(aStr).get());
+  __android_log_print(ANDROID_LOG_INFO, "Gecko", "%s", NS_ConvertUTF16toUTF8(aStr).get());
 #endif
 #ifdef XP_WIN
   if (IsDebuggerPresent()) {

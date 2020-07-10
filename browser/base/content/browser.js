@@ -27,16 +27,21 @@ XPCOMUtils.defineLazyModuleGetter(this, "BrowserUtils",
                                   "resource://gre/modules/BrowserUtils.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "Task",
                                   "resource://gre/modules/Task.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "PromiseUtils",
+                                  "resource://gre/modules/PromiseUtils.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "ContentSearch",
                                   "resource:///modules/ContentSearch.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "AboutHome",
                                   "resource:///modules/AboutHome.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "Log",
+                                  "resource://gre/modules/Log.jsm");
 XPCOMUtils.defineLazyServiceGetter(this, "Favicons",
                                    "@mozilla.org/browser/favicon-service;1",
                                    "mozIAsyncFavicons");
 XPCOMUtils.defineLazyServiceGetter(this, "gDNSService",
                                    "@mozilla.org/network/dns-service;1",
                                    "nsIDNSService");
+
 
 const nsIWebNavigation = Ci.nsIWebNavigation;
 const gToolbarInfoSeparators = ["|", "-"];
@@ -1186,6 +1191,12 @@ var gBrowserInit = {
     gHomeButton.updateTooltip(homeButton);
     gHomeButton.updatePersonalToolbarStyle(homeButton);
 
+    let safeMode = document.getElementById("helpSafeMode");
+    if (Services.appinfo.inSafeMode) {
+      safeMode.label = safeMode.getAttribute("stoplabel");
+      safeMode.accesskey = safeMode.getAttribute("stopaccesskey");
+    }
+
     // BiDi UI
     gBidiUI = isBidiEnabled();
     if (gBidiUI) {
@@ -2051,6 +2062,12 @@ function getShortcutOrURIAndPostData(aURL, aCallback) {
   let shortcutURL = null;
   let keyword = aURL;
   let param = "";
+
+  // XXX Bug 1100294 will remove this little hack by using an async version of
+  // PlacesUtils.getURLAndPostDataForKeyword(). For now we simulate an async
+  // execution with at least a setTimeout(fn, 0).
+  let originalCallback = aCallback;
+  aCallback = data => setTimeout(() => originalCallback(data));
 
   let offset = aURL.indexOf(" ");
   if (offset > 0) {
@@ -3333,6 +3350,12 @@ const BrowserSearch = {
     if (engine) {
       BrowserSearch.recordSearchInHealthReport(engine, "contextmenu");
     }
+  },
+
+  pasteAndSearch: function (event) {
+    BrowserSearch.searchBar.select();
+    goDoCommand("cmd_paste");
+    BrowserSearch.searchBar.handleSearchCommand(event);
   },
 
   /**
@@ -5396,7 +5419,7 @@ function handleDroppedLink(event, url, name)
   });
 
   // Keep the event from being handled by the dragDrop listeners
-  // built-in to goanna if they happen to be above us.
+  // built-in to gecko if they happen to be above us.
   event.preventDefault();
 };
 
@@ -7210,57 +7233,20 @@ Object.defineProperty(this, "HUDService", {
 #endif
 
 // Prompt user to restart the browser in safe mode or normally
-function restart(safeMode)
-{
-  let promptTitleString = null;
-  let promptMessageString = null;
-  let restartTextString = null;
-  if (safeMode) {
-    promptTitleString = "safeModeRestartPromptTitle";
-    promptMessageString = "safeModeRestartPromptMessage";
-    restartTextString = "safeModeRestartButton";
-  } else {
-    promptTitleString = "restartPromptTitle";
-    promptMessageString = "restartPromptMessage";
-    restartTextString = "restartButton";
-  }
-
-  let flags = Ci.nsIAppStartup.eAttemptQuit;
-
-  // Prompt the user to confirm
-  let promptTitle = gNavigatorBundle.getString(promptTitleString);
-  let brandBundle = document.getElementById("bundle_brand");
-  let brandShortName = brandBundle.getString("brandShortName");
-  let promptMessage =
-    gNavigatorBundle.getFormattedString(promptMessageString, [brandShortName]);
-  let restartText = gNavigatorBundle.getString(restartTextString);
-  let buttonFlags = (Services.prompt.BUTTON_POS_0 *
-                     Services.prompt.BUTTON_TITLE_IS_STRING) +
-                    (Services.prompt.BUTTON_POS_1 *
-                     Services.prompt.BUTTON_TITLE_CANCEL) +
-                    Services.prompt.BUTTON_POS_0_DEFAULT;
-
-  let rv = Services.prompt.confirmEx(window, promptTitle, promptMessage,
-                                     buttonFlags, restartText, null, null,
-                                     null, {});
-
-  if (rv == 0) {
-    // Notify all windows that an application quit has been requested.
-    let cancelQuit = Components.classes["@mozilla.org/supports-PRBool;1"]
-                     .createInstance(Ci.nsISupportsPRBool);
+function safeModeRestart() {
+  if (Services.appinfo.inSafeMode) {
+    let cancelQuit = Cc["@mozilla.org/supports-PRBool;1"].
+                     createInstance(Ci.nsISupportsPRBool);
     Services.obs.notifyObservers(cancelQuit, "quit-application-requested", "restart");
 
-    // Something aborted the quit process.
-    if (cancelQuit.data) {
+    if (cancelQuit.data)
       return;
-    }
 
-    if (safeMode) {    
-      Services.startup.restartInSafeMode(flags);
-    } else {
-      Services.startup.quit(flags | Ci.nsIAppStartup.eRestart);
-    }
+    Services.startup.quit(Ci.nsIAppStartup.eRestart | Ci.nsIAppStartup.eAttemptQuit);
+    return;
   }
+
+  Services.obs.notifyObservers(null, "restart-in-safe-mode", "");
 }
 
 let PanicButtonNotifier = {

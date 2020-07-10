@@ -3394,7 +3394,7 @@ nsTreeBodyFrame::PaintTwisty(int32_t              aRowIndex,
       if (isRTL)
         twistyRect.x = rightEdge - twistyRect.width;
       // yeah, I know it says we're drawing a background, but a twisty is really a fg
-      // object since it doesn't have anything that goanna would want to draw over it. Besides,
+      // object since it doesn't have anything that gecko would want to draw over it. Besides,
       // we have to prevent imagelib from drawing it.
       nsRect dirty;
       dirty.IntersectRect(twistyRect, aDirtyRect);
@@ -4201,23 +4201,29 @@ nsTreeBodyFrame::ScrollHorzInternal(const ScrollParts& aParts, int32_t aPosition
 }
 
 void
-nsTreeBodyFrame::ScrollByPage(nsScrollbarFrame* aScrollbar, int32_t aDirection)
+nsTreeBodyFrame::ScrollByPage(nsScrollbarFrame* aScrollbar, int32_t aDirection,
+                              nsIScrollbarMediator::ScrollSnapMode aSnap)
 {
+  // CSS Scroll Snapping is not enabled for XUL, aSnap is ignored
   MOZ_ASSERT(aScrollbar != nullptr);
   ScrollByPages(aDirection);
 }
 
 void
-nsTreeBodyFrame::ScrollByWhole(nsScrollbarFrame* aScrollbar, int32_t aDirection)
+nsTreeBodyFrame::ScrollByWhole(nsScrollbarFrame* aScrollbar, int32_t aDirection,
+                               nsIScrollbarMediator::ScrollSnapMode aSnap)
 {
+  // CSS Scroll Snapping is not enabled for XUL, aSnap is ignored
   MOZ_ASSERT(aScrollbar != nullptr); 
   int32_t newIndex = aDirection < 0 ? 0 : mTopRowIndex;
   ScrollToRow(newIndex);
 }
 
 void
-nsTreeBodyFrame::ScrollByLine(nsScrollbarFrame* aScrollbar, int32_t aDirection)
+nsTreeBodyFrame::ScrollByLine(nsScrollbarFrame* aScrollbar, int32_t aDirection,
+                              nsIScrollbarMediator::ScrollSnapMode aSnap)
 {
+  // CSS Scroll Snapping is not enabled for XUL, aSnap is ignored
   MOZ_ASSERT(aScrollbar != nullptr);
   ScrollByLines(aDirection);
 }

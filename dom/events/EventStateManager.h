@@ -110,7 +110,7 @@ public:
 
   /**
    * DispatchLegacyMouseScrollEvents() dispatches NS_MOUSE_SCROLL event and
-   * NS_MOUSE_PIXEL_SCROLL event for compatiblity with old Goanna.
+   * NS_MOUSE_PIXEL_SCROLL event for compatiblity with old Gecko.
    */
   void DispatchLegacyMouseScrollEvents(nsIFrame* aTargetFrame,
                                        WidgetWheelEvent* aEvent,
@@ -226,6 +226,10 @@ public:
 
   // Returns true if the given WidgetWheelEvent will resolve to a scroll action.
   static bool WheelEventIsScrollAction(WidgetWheelEvent* aEvent);
+
+  // Returns true if user prefs for wheel deltas apply to the given
+  // WidgetWheelEvent.
+  static bool WheelEventNeedsDeltaMultipliers(WidgetWheelEvent* aEvent);
 
   // Returns whether or not a frame can be vertically scrolled with a mouse
   // wheel (as opposed to, say, a selection or touch scroll).
@@ -431,6 +435,12 @@ protected:
      * user prefs.
      */
     void ApplyUserPrefsToDelta(WidgetWheelEvent* aEvent);
+
+    /**
+     * Returns whether or not ApplyUserPrefsToDelta() would change the delta
+     * values of an event.
+     */
+    bool HasUserPrefsForDelta(WidgetWheelEvent* aEvent);
 
     /**
      * If ApplyUserPrefsToDelta() changed the delta values with customized

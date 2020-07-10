@@ -308,7 +308,7 @@ LogErrorToConsole(const nsAString& aMessage,
   static const char kErrorString[] = "JS error in Web Worker: %s [%s:%u]";
 
 #ifdef ANDROID
-  __android_log_print(ANDROID_LOG_INFO, "Goanna", kErrorString, msg.get(),
+  __android_log_print(ANDROID_LOG_INFO, "Gecko", kErrorString, msg.get(),
                       filename.get(), aLineNumber);
 #endif
 
@@ -394,7 +394,7 @@ EnsureBlobForBackgroundManager(FileImpl* aBlobImpl,
   return blobImpl.forget();
 }
 
-already_AddRefed<File>
+already_AddRefed<Blob>
 ReadBlobOrFileNoWrap(JSContext* aCx,
                      JSStructuredCloneReader* aReader,
                      bool aIsMainThread)
@@ -433,7 +433,7 @@ ReadBlobOrFileNoWrap(JSContext* aCx,
     parent = do_QueryObject(globalScope);
   }
 
-  nsRefPtr<File> blob = new File(parent, blobImpl);
+  nsRefPtr<Blob> blob = Blob::Create(parent, blobImpl);
   return blob.forget();
 }
 
@@ -443,7 +443,7 @@ ReadBlobOrFile(JSContext* aCx,
                bool aIsMainThread,
                JS::MutableHandle<JSObject*> aBlobOrFile)
 {
-  nsRefPtr<File> blob = ReadBlobOrFileNoWrap(aCx, aReader, aIsMainThread);
+  nsRefPtr<Blob> blob = ReadBlobOrFileNoWrap(aCx, aReader, aIsMainThread);
   aBlobOrFile.set(blob->WrapObject(aCx, JS::NullPtr()));
 }
 
@@ -492,7 +492,7 @@ ReadFormData(JSContext* aCx,
     if (isFile) {
       // Read out the tag since the blob reader isn't expecting it.
       MOZ_ALWAYS_TRUE(JS_ReadUint32Pair(aReader, &dummy, &dummy));
-      nsRefPtr<File> blob = ReadBlobOrFileNoWrap(aCx, aReader, aIsMainThread);
+      nsRefPtr<Blob> blob = ReadBlobOrFileNoWrap(aCx, aReader, aIsMainThread);
       MOZ_ASSERT(blob);
       formData->Append(name, *blob, thirdArg);
     } else {
@@ -643,7 +643,7 @@ struct WorkerStructuredCloneCallbacks
 
     // See if this is a Blob/File object.
     {
-      nsRefPtr<File> blob;
+      nsRefPtr<Blob> blob;
       if (NS_SUCCEEDED(UNWRAP_OBJECT(Blob, aObj, blob))) {
         FileImpl* blobImpl = blob->Impl();
         MOZ_ASSERT(blobImpl);
@@ -735,7 +735,7 @@ struct MainThreadWorkerStructuredCloneCallbacks
 
     // See if this is a Blob/File object.
     {
-      nsRefPtr<File> blob;
+      nsRefPtr<Blob> blob;
       if (NS_SUCCEEDED(UNWRAP_OBJECT(Blob, aObj, blob))) {
         FileImpl* blobImpl = blob->Impl();
         MOZ_ASSERT(blobImpl);
@@ -3965,17 +3965,16 @@ WorkerPrivateParent<Derived>::SetBaseURI(nsIURI* aBaseURI)
     mLocationInfo.mHref.Truncate();
   }
 
-  if (NS_FAILED(aBaseURI->GetHost(mLocationInfo.mHostname))) {
-    mLocationInfo.mHostname.Truncate();
-  }
+  mLocationInfo.mHostname.Truncate();
+  nsContentUtils::GetHostOrIPv6WithBrackets(aBaseURI, mLocationInfo.mHostname);
 
-  if (NS_FAILED(aBaseURI->GetPath(mLocationInfo.mPathname))) {
+  nsCOMPtr<nsIURL> url(do_QueryInterface(aBaseURI));
+  if (!url || NS_FAILED(url->GetFilePath(mLocationInfo.mPathname))) {
     mLocationInfo.mPathname.Truncate();
   }
 
   nsCString temp;
 
-  nsCOMPtr<nsIURL> url(do_QueryInterface(aBaseURI));
   if (url && NS_SUCCEEDED(url->GetQuery(temp)) && !temp.IsEmpty()) {
     mLocationInfo.mSearch.Assign('?');
     mLocationInfo.mSearch.Append(temp);

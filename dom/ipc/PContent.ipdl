@@ -49,6 +49,7 @@ include protocol PTestShell;
 include protocol PVoicemail;
 include protocol PJavaScript;
 include protocol PRemoteSpellcheckEngine;
+include protocol PWebrtcGlobal;
 include DOMTypes;
 include JavaScriptTypes;
 include InputStreamParams;
@@ -440,6 +441,7 @@ prio(normal upto urgent) sync protocol PContent
     manages PVoicemail;
     manages PJavaScript;
     manages PRemoteSpellcheckEngine;
+    manages PWebrtcGlobal;
 
 both:
     // Depending on exactly how the new browser is being created, it might be
@@ -606,7 +608,7 @@ child:
     async LoadPluginResult(uint32_t aPluginId, bool aResult);
 
     /**
-     * Control the Goanna Profiler in the child process.
+     * Control the Gecko Profiler in the child process.
      */
     async StartProfiler(uint32_t aEntries, double aInterval, nsCString[] aFeatures,
                         nsCString[] aThreadNameFilters);
@@ -710,7 +712,7 @@ parent:
 
     async PJavaScript();
 
-    sync PRemoteSpellcheckEngine();
+    PRemoteSpellcheckEngine();
     PDeviceStorageRequest(DeviceStorageParams params);
 
     PFileSystemRequest(FileSystemParams params);
@@ -757,6 +759,8 @@ parent:
     PFMRadio();
 
     PAsmJSCacheEntry(OpenMode openMode, WriteParams write, Principal principal);
+
+    PWebrtcGlobal();
 
     // Services remoting
 
@@ -817,12 +821,22 @@ parent:
     // nsIPermissionManager messages
     sync ReadPermissions() returns (Permission[] permissions);
 
-    SetClipboardText(nsString text, bool isPrivateData, int32_t whichClipboard);
-    sync GetClipboardText(int32_t whichClipboard)
-        returns (nsString text);
-    EmptyClipboard(int32_t whichClipboard);
-    sync ClipboardHasText(int32_t whichClipboard)
-        returns (bool hasText);
+    // Places the items within dataTransfer on the clipboard.
+    SetClipboard(IPCDataTransfer aDataTransfer,
+                 bool aIsPrivateData,
+                 int32_t aWhichClipboard);
+
+    // Given a list of supported types, returns the clipboard data for the
+    // first type that matches.
+    sync GetClipboard(nsCString[] aTypes, int32_t aWhichClipboard)
+        returns (IPCDataTransfer dataTransfer);
+
+    // Clears the clipboard.
+    EmptyClipboard(int32_t aWhichClipboard);
+
+    // Returns true if data of one of the specified types is on the clipboard.
+    sync ClipboardHasType(nsCString[] aTypes, int32_t aWhichClipboard)
+        returns (bool hasType);
 
     sync GetSystemColors(uint32_t colorsCount)
         returns (uint32_t[] colors);
