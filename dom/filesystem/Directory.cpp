@@ -192,36 +192,27 @@ Directory::RemoveInternal(const StringOrFileOrDirectory& aPath, bool aRecursive,
 {
   nsresult error = NS_OK;
   nsString realPath;
-  nsRefPtr<FileImpl> file;
+  nsRefPtr<BlobImpl> blob;
 
   // Check and get the target path.
 
   if (aPath.IsFile()) {
-    file = aPath.GetAsFile().Impl();
-    goto parameters_check_done;
-  }
-
-  if (aPath.IsString()) {
+    blob = aPath.GetAsFile().Impl();
+  } else if (aPath.IsString()) {
     if (!DOMPathToRealPath(aPath.GetAsString(), realPath)) {
       error = NS_ERROR_DOM_FILESYSTEM_INVALID_PATH_ERR;
     }
-    goto parameters_check_done;
-  }
-
-  if (!mFileSystem->IsSafeDirectory(&aPath.GetAsDirectory())) {
+  } else if (!mFileSystem->IsSafeDirectory(&aPath.GetAsDirectory())) {
     error = NS_ERROR_DOM_SECURITY_ERR;
-    goto parameters_check_done;
+  } else {
+    realPath = aPath.GetAsDirectory().mPath;
+    // The target must be a descendant of this directory.
+    if (!FileSystemUtils::IsDescendantPath(mPath, realPath)) {
+      error = NS_ERROR_DOM_FILESYSTEM_NO_MODIFICATION_ALLOWED_ERR;
+    }
   }
 
-  realPath = aPath.GetAsDirectory().mPath;
-  // The target must be a descendant of this directory.
-  if (!FileSystemUtils::IsDescendantPath(mPath, realPath)) {
-    error = NS_ERROR_DOM_FILESYSTEM_NO_MODIFICATION_ALLOWED_ERR;
-  }
-
-parameters_check_done:
-
-  nsRefPtr<RemoveTask> task = new RemoveTask(mFileSystem, mPath, file, realPath,
+  nsRefPtr<RemoveTask> task = new RemoveTask(mFileSystem, mPath, blob, realPath,
     aRecursive, aRv);
   if (aRv.Failed()) {
     return nullptr;

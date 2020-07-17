@@ -170,9 +170,6 @@ private:
   // Only used for top level workers.
   nsTArray<nsCOMPtr<nsIRunnable>> mQueuedRunnables;
 
-  // Only for ChromeWorkers without window and only touched on the main thread.
-  nsTArray<nsCString> mHostObjectURIs;
-
   // Protected by mMutex.
   JSSettings mJSSettings;
 
@@ -718,15 +715,6 @@ public:
   CloseSharedWorkersForWindow(nsPIDOMWindow* aWindow);
 
   void
-  RegisterHostObjectURI(const nsACString& aURI);
-
-  void
-  UnregisterHostObjectURI(const nsACString& aURI);
-
-  void
-  StealHostObjectURIs(nsTArray<nsCString>& aArray);
-
-  void
   UpdateOverridenLoadGroup(nsILoadGroup* aBaseLoadGroup);
 
   IMPL_EVENT_HANDLER(message)
@@ -1197,6 +1185,13 @@ public:
   {
     AssertIsOnWorkerThread();
     return mPreferences[WORKERPREF_DOM_CACHES];
+  }
+
+  bool
+  ServiceWorkersEnabled() const
+  {
+    AssertIsOnWorkerThread();
+    return mPreferences[WORKERPREF_SERVICEWORKERS];
   }
 
   bool

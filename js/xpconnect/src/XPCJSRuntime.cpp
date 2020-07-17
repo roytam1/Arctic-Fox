@@ -31,6 +31,7 @@
 #include "nsContentUtils.h"
 #include "nsCCUncollectableMarker.h"
 #include "nsCycleCollectionNoteRootCallback.h"
+#include "nsCycleCollector.h"
 #include "nsScriptLoader.h"
 #include "jsfriendapi.h"
 #include "jsprf.h"
@@ -1442,8 +1443,13 @@ XPCJSRuntime::InterruptCallback(JSContext* cx)
             win = WindowGlobalOrNull(proto);
         }
     }
-    if (!win)
+
+    if (!win) {
+        NS_WARNING("No active window");
         return true;
+    }
+
+    MOZ_ASSERT(!win->IsDying());
 
     if (win->GetIsPrerendered()) {
         // We cannot display a dialog if the page is being prerendered, so

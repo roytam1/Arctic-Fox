@@ -768,9 +768,7 @@ nsPluginFrame::GetRemoteTabChromeOffset()
       if (topWindow) {
         dom::TabChild* tc = dom::TabChild::GetFrom(topWindow);
         if (tc) {
-          LayoutDeviceIntPoint chromeOffset;
-          tc->SendGetTabOffset(&chromeOffset);
-          offset -= chromeOffset;
+          offset += tc->GetChromeDisplacement();
         }
       }
     }
@@ -1782,7 +1780,7 @@ nsPluginFrame::HandleEvent(nsPresContext* aPresContext,
 
 #ifdef XP_MACOSX
   // we want to process some native mouse events in the cocoa event model
-  if ((anEvent->message == NS_MOUSE_ENTER ||
+  if ((anEvent->message == NS_MOUSE_ENTER_WIDGET ||
        anEvent->message == NS_WHEEL_WHEEL) &&
       mInstanceOwner->GetEventModel() == NPEventModelCocoa) {
     *anEventStatus = mInstanceOwner->ProcessEvent(*anEvent);

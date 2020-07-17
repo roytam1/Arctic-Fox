@@ -33,7 +33,7 @@ nsInProcessTabChildGlobal::DoSendBlockingMessage(JSContext* aCx,
                                                  const dom::StructuredCloneData& aData,
                                                  JS::Handle<JSObject *> aCpows,
                                                  nsIPrincipal* aPrincipal,
-                                                 InfallibleTArray<nsString>* aJSONRetVal,
+                                                 nsTArray<OwningSerializedStructuredCloneBuffer>* aRetVal,
                                                  bool aIsSync)
 {
   SameProcessMessageQueue* queue = SameProcessMessageQueue::Get();
@@ -44,7 +44,7 @@ nsInProcessTabChildGlobal::DoSendBlockingMessage(JSContext* aCx,
     nsRefPtr<nsFrameMessageManager> mm = mChromeMessageManager;
     nsCOMPtr<nsIFrameLoader> fl = GetFrameLoader();
     mm->ReceiveMessage(mOwner, fl, aMessage, true, &aData, &cpows, aPrincipal,
-                       aJSONRetVal);
+                       aRetVal);
   }
   return true;
 }
@@ -146,6 +146,7 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(nsInProcessTabChildGlobal,
                                                   DOMEventTargetHelper)
    NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mMessageManager)
    NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mGlobal)
+   tmp->TraverseHostObjectURIs(cb);
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
 NS_IMPL_CYCLE_COLLECTION_TRACE_BEGIN_INHERITED(nsInProcessTabChildGlobal,
@@ -160,6 +161,7 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN_INHERITED(nsInProcessTabChildGlobal,
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mMessageManager)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mGlobal)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mAnonymousGlobalScopes)
+   tmp->UnlinkHostObjectURIs();
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION_INHERITED(nsInProcessTabChildGlobal)

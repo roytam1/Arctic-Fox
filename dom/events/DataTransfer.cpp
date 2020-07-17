@@ -94,7 +94,7 @@ DataTransfer::DataTransfer(nsISupports* aParent, uint32_t aEventType,
   } else if (mIsExternal) {
     if (aEventType == NS_PASTE) {
       CacheExternalClipboardFormats();
-    } else if (aEventType >= NS_DRAGDROP_EVENT_START && aEventType <= NS_DRAGDROP_LEAVE_SYNTH) {
+    } else if (aEventType >= NS_DRAGDROP_EVENT_START && aEventType <= NS_DRAGDROP_LEAVE) {
       CacheExternalDragFormats();
     }
   }
@@ -304,14 +304,14 @@ DataTransfer::GetFiles(ErrorResult& aRv)
       if (file) {
         domFile = File::CreateFromFile(GetParentObject(), file);
       } else {
-        nsCOMPtr<FileImpl> fileImpl = do_QueryInterface(supports);
-        if (!fileImpl) {
+        nsCOMPtr<BlobImpl> blobImpl = do_QueryInterface(supports);
+        if (!blobImpl) {
           continue;
         }
 
-        MOZ_ASSERT(fileImpl->IsFile());
+        MOZ_ASSERT(blobImpl->IsFile());
 
-        domFile = File::Create(GetParentObject(), fileImpl);
+        domFile = File::Create(GetParentObject(), blobImpl);
         MOZ_ASSERT(domFile);
       }
 
