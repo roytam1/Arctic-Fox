@@ -950,7 +950,9 @@ class JSScript : public js::gc::TenuredCell
     // Script has singleton objects.
     bool hasSingletons_:1;
 
-    // Script is a lambda to treat as running once.
+    // Script is a lambda to treat as running once or a global or eval script
+    // that will only run once.  Which one it is can be disambiguated by
+    // checking whether function_ is null.
     bool treatAsRunOnce_:1;
 
     // If treatAsRunOnce, whether script has executed.
@@ -1193,6 +1195,10 @@ class JSScript : public js::gc::TenuredCell
         MOZ_ASSERT(isActiveEval() && !isCachedEval());
         isActiveEval_ = false;
         isCachedEval_ = true;
+        // IsEvalCacheCandidate will make sure that there's nothing in this
+        // script that would prevent reexecution even if isRunOnce is
+        // true.  So just pretend like we never ran this script.
+        hasRunOnce_ = false;
     }
 
     void uncacheForEval() {
@@ -1574,6 +1580,7 @@ class JSScript : public js::gc::TenuredCell
     JSObject *getObject(size_t index) {
         js::ObjectArray *arr = objects();
         MOZ_ASSERT(index < arr->length);
+        MOZ_ASSERT(arr->vector[index]->isTenured());
         return arr->vector[index];
     }
 

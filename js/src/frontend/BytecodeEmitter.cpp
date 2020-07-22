@@ -2226,11 +2226,11 @@ BytecodeEmitter::emitNewInit(JSProtoKey key)
 static bool
 IteratorResultShape(ExclusiveContext* cx, BytecodeEmitter* bce, unsigned* shape)
 {
-    MOZ_ASSERT(bce->script->compileAndGo());
-
     RootedPlainObject obj(cx);
-    gc::AllocKind kind = GuessObjectGCKind(2);
-    obj = NewBuiltinClassInstance<PlainObject>(cx, kind);
+    // No need to do any guessing for the object kind, since we know exactly how
+    // many properties we plan to have.
+    gc::AllocKind kind = gc::GetGCObjectKind(2);
+    obj = NewBuiltinClassInstance<PlainObject>(cx, kind, TenuredObject);
     if (!obj)
         return false;
 
@@ -2259,14 +2259,10 @@ IteratorResultShape(ExclusiveContext* cx, BytecodeEmitter* bce, unsigned* shape)
 bool
 BytecodeEmitter::emitPrepareIteratorResult()
 {
-    if (script->compileAndGo()) {
-        unsigned shape;
-        if (!IteratorResultShape(cx, this, &shape))
-            return false;
-        return emitIndex32(JSOP_NEWOBJECT, shape);
-    }
-
-    return emitNewInit(JSProto_Object);
+    unsigned shape;
+    if (!IteratorResultShape(cx, this, &shape))
+        return false;
+    return emitIndex32(JSOP_NEWOBJECT, shape);
 }
 
 bool
@@ -6588,12 +6584,12 @@ BytecodeEmitter::emitObject(ParseNode *pn)
      * JSOP_NEWOBJECT with the final shape instead.
      */
     RootedPlainObject obj(cx);
-    if (script->compileAndGo()) {
-        gc::AllocKind kind = GuessObjectGCKind(pn->pn_count);
-        obj = NewBuiltinClassInstance<PlainObject>(cx, kind, TenuredObject);
-        if (!obj)
-            return false;
-    }
+    // No need to do any guessing for the object kind, since we know exactly
+    // how many properties we plan to have.
+    gc::AllocKind kind = gc::GetGCObjectKind(pn->pn_count);
+    obj = NewBuiltinClassInstance<PlainObject>(cx, kind, TenuredObject);
+    if (!obj)
+        return false;
 
     if (!emitPropertyList(pn, &obj, ObjectLiteral))
         return false;
@@ -7689,6 +7685,7 @@ CGObjectList::finish(ObjectArray* array)
     do {
         --cursor;
         MOZ_ASSERT(!*cursor);
+        MOZ_ASSERT(objbox->object->isTenured());
         *cursor = objbox->object;
     } while ((objbox = objbox->emitLink) != nullptr);
     MOZ_ASSERT(cursor == array->vector);

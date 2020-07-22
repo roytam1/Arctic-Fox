@@ -186,6 +186,9 @@ XPCOMUtils.defineLazyModuleGetter(this, "CastingApps",
 XPCOMUtils.defineLazyModuleGetter(this, "SimpleServiceDiscovery",
   "resource://gre/modules/SimpleServiceDiscovery.jsm");
 
+XPCOMUtils.defineLazyModuleGetter(this, "UITour",
+  "resource:///modules/UITour.jsm");
+
 let gInitialPages = [
   "about:blank",
   "about:newtab",
@@ -912,8 +915,6 @@ var gBrowserInit = {
       Cc["@mozilla.org/eventlistenerservice;1"]
         .getService(Ci.nsIEventListenerService)
         .addSystemEventListener(gBrowser, "click", contentAreaClick, true);
-    } else {
-      gBrowser.updateBrowserRemoteness(gBrowser.selectedBrowser, true);
     }
 
     // hook up UI through progress listener
@@ -1107,13 +1108,29 @@ var gBrowserInit = {
       else if (uriToLoad instanceof XULElement) {
         // swap the given tab with the default about:blank tab and then close
         // the original tab in the other window.
+        let tabToOpen = uriToLoad;
 
         // Stop the about:blank load
         gBrowser.stop();
         // make sure it has a docshell
         gBrowser.docShell;
 
-        gBrowser.swapBrowsersAndCloseOther(gBrowser.selectedTab, uriToLoad);
+        // If the browser that we're swapping in was remote, then we'd better
+        // be able to support remote browsers, and then make our selectedTab
+        // remote.
+        try {
+          if (tabToOpen.linkedBrowser.isRemoteBrowser) {
+            if (!gMultiProcessBrowser) {
+              throw new Error("Cannot drag a remote browser into a window " +
+                              "without the remote tabs load context.");
+            }
+
+            gBrowser.updateBrowserRemoteness(gBrowser.selectedBrowser, true);
+          }
+          gBrowser.swapBrowsersAndCloseOther(gBrowser.selectedTab, tabToOpen);
+        } catch(e) {
+          Cu.reportError(e);
+        }
       }
       // window.arguments[2]: referrer (nsIURI | string)
       //                 [3]: postData (nsIInputStream)
@@ -1744,8 +1761,7 @@ function gotoHistoryIndex(aEvent) {
   }
   // Modified click. Go there in a new tab/window.
 
-  let historyindex = aEvent.target.getAttribute("historyindex");
-  duplicateTabIn(gBrowser.selectedTab, where, Number(historyindex));
+  duplicateTabIn(gBrowser.selectedTab, where, index - gBrowser.sessionHistory.index);
   return true;
 }
 
@@ -3429,108 +3445,65 @@ function FillHistoryMenu(aParent) {
   }
 
   // Remove old entries if any
-  let children = aParent.childNodes;
+  var children = aParent.childNodes;
   for (var i = children.length - 1; i >= 0; --i) {
     if (children[i].hasAttribute("index"))
       aParent.removeChild(children[i]);
   }
 
+  var webNav = gBrowser.webNavigation;
+  var sessionHistory = webNav.sessionHistory;
+
+  var count = sessionHistory.count;
+  if (count <= 1) // don't display the popup for a single item
+    return false;
+
   const MAX_HISTORY_MENU_ITEMS = 15;
+  var index = sessionHistory.index;
+  var half_length = Math.floor(MAX_HISTORY_MENU_ITEMS / 2);
+  var start = Math.max(index - half_length, 0);
+  var end = Math.min(start == 0 ? MAX_HISTORY_MENU_ITEMS : index + half_length + 1, count);
+  if (end == count)
+    start = Math.max(count - MAX_HISTORY_MENU_ITEMS, 0);
 
-  const tooltipBack = gNavigatorBundle.getString("tabHistory.goBack");
-  const tooltipCurrent = gNavigatorBundle.getString("tabHistory.current");
-  const tooltipForward = gNavigatorBundle.getString("tabHistory.goForward");
+  var tooltipBack = gNavigatorBundle.getString("tabHistory.goBack");
+  var tooltipCurrent = gNavigatorBundle.getString("tabHistory.current");
+  var tooltipForward = gNavigatorBundle.getString("tabHistory.goForward");
 
-  function updateSessionHistory(sessionHistory, initial)
-  {
-    let count = sessionHistory.entries.length;
+  for (var j = end - 1; j >= start; j--) {
+    let item = document.createElement("menuitem");
+    let entry = sessionHistory.getEntryAtIndex(j, false);
+    let uri = entry.URI.spec;
+    let uriCopy = BrowserUtils.makeURI(uri);
 
-    if (!initial) {
-      if (count <= 1) {
-        // if there is only one entry now, close the popup.
-        aParent.hidePopup();
-        return;
-      } else if (!aParent.parentNode.open) {
-        // if the popup wasn't open before, but now needs to be, reopen the menu.
-        // It should trigger FillHistoryMenu again.
-        aParent.parentNode.open = true;
-        return;
-      }
+    item.setAttribute("uri", uri);
+    item.setAttribute("label", entry.title || uri);
+    item.setAttribute("index", j);
+
+    if (j != index) {
+      PlacesUtils.favicons.getFaviconURLForPage(uriCopy, function (aURI) {
+        if (aURI) {
+          let iconURL = PlacesUtils.favicons.getFaviconLinkForIcon(aURI).spec;
+          item.style.listStyleImage = "url(" + iconURL + ")";
+        }
+      });
     }
 
-    let index = sessionHistory.index;
-    let half_length = Math.floor(MAX_HISTORY_MENU_ITEMS / 2);
-    let start = Math.max(index - half_length, 0);
-    let end = Math.min(start == 0 ? MAX_HISTORY_MENU_ITEMS : index + half_length + 1, count);
-    if (end == count) {
-      start = Math.max(count - MAX_HISTORY_MENU_ITEMS, 0);
+    if (j < index) {
+      item.className = "unified-nav-back menuitem-iconic menuitem-with-favicon";
+      item.setAttribute("tooltiptext", tooltipBack);
+    } else if (j == index) {
+      item.setAttribute("type", "radio");
+      item.setAttribute("checked", "true");
+      item.className = "unified-nav-current";
+      item.setAttribute("tooltiptext", tooltipCurrent);
+    } else {
+      item.className = "unified-nav-forward menuitem-iconic menuitem-with-favicon";
+      item.setAttribute("tooltiptext", tooltipForward);
     }
 
-    let existingIndex = 0;
-
-    for (let j = end - 1; j >= start; j--) {
-      let entry = sessionHistory.entries[j];
-      let uri = entry.url;
-
-      let item = existingIndex < children.length ?
-                   children[existingIndex] : document.createElement("menuitem");
-
-      let entryURI = BrowserUtils.makeURI(entry.url, entry.charset, null);
-      item.setAttribute("uri", uri);
-      item.setAttribute("label", entry.title || uri);
-      item.setAttribute("index", j);
-
-      // Cache this so that gotoHistoryIndex doesn't need the original index
-      item.setAttribute("historyindex", j - index);
-
-      if (j != index) {
-        PlacesUtils.favicons.getFaviconURLForPage(entryURI, function (aURI) {
-          if (aURI) {
-            let iconURL = PlacesUtils.favicons.getFaviconLinkForIcon(aURI).spec;
-            iconURL = PlacesUtils.getImageURLForResolution(window, iconURL);
-            item.style.listStyleImage = "url(" + iconURL + ")";
-          }
-        });
-      }
-
-      if (j < index) {
-        item.className = "unified-nav-back menuitem-iconic menuitem-with-favicon";
-        item.setAttribute("tooltiptext", tooltipBack);
-      } else if (j == index) {
-        item.setAttribute("type", "radio");
-        item.setAttribute("checked", "true");
-        item.className = "unified-nav-current";
-        item.setAttribute("tooltiptext", tooltipCurrent);
-      } else {
-        item.className = "unified-nav-forward menuitem-iconic menuitem-with-favicon";
-        item.setAttribute("tooltiptext", tooltipForward);
-      }
-
-      if (!item.parentNode) {
-        aParent.appendChild(item);
-      }
-
-      existingIndex++;
-    }
-
-    if (!initial) {
-      let existingLength = children.length;
-      while (existingIndex < existingLength) {
-        aParent.removeChild(aParent.lastChild);
-        existingIndex++;
-      }
-    }
+    aParent.appendChild(item);
   }
-
-  let sessionHistory = SessionStore.getSessionHistory(gBrowser.selectedTab, updateSessionHistory);
-  if (!sessionHistory)
-    return false;
-
-  // don't display the popup for a single item
-  if (sessionHistory.entries.length <= 1)
-    return false;
-
-  updateSessionHistory(sessionHistory, true);
   return true;
 }
 
@@ -3942,6 +3915,13 @@ var XULBrowserWindow = {
 
   setJSStatus: function () {
     // unsupported
+  },
+
+  forceInitialBrowserRemote: function() {
+    let initBrowser =
+      document.getAnonymousElementByAttribute(gBrowser, "anonid", "initialBrowser");
+    gBrowser.updateBrowserRemoteness(initBrowser, true);
+    return initBrowser.frameLoader.tabParent;
   },
 
   setDefaultStatus: function (status) {
@@ -7065,6 +7045,11 @@ let gRemoteTabsUI = {
       return;
     }
 
+    if (Services.appinfo.inSafeMode) {
+      // e10s isn't supported in safe mode, so don't show the menu items for it
+      return;
+    }
+
     let newRemoteWindow = document.getElementById("menu_newRemoteWindow");
     let newNonRemoteWindow = document.getElementById("menu_newNonRemoteWindow");
 
@@ -7094,9 +7079,22 @@ let gRemoteTabsUI = {
  *        will be the parameter object that gets passed to openUILinkIn. Please
  *        see the documentation for openUILinkIn to see what parameters can be
  *        passed via this object.
+ *        This object also allows:
+ *        - 'ignoreFragment' property to be set to true to exclude fragment-portion
+ *        matching when comparing URIs.
+ *        - 'replaceQueryString' property to be set to true to exclude query string
+ *        matching when comparing URIs and ovewrite the initial query string with
+ *        the one from the new URI.
  * @return True if an existing tab was found, false otherwise
  */
-function switchToTabHavingURI(aURI, aOpenNew, aOpenParams) {
+function switchToTabHavingURI(aURI, aOpenNew, aOpenParams={}) {
+  let ignoreFragment = aOpenParams.ignoreFragment;
+  let replaceQueryString = aOpenParams.replaceQueryString;
+
+  // This property is only used by switchToTabHavingURI and should
+  // not be used as a parameter for the new load.
+  delete aOpenParams.ignoreFragment;
+
   // This will switch to the tab in aWindow having aURI, if present.
   function switchIfURIInWindow(aWindow) {
     // Only switch to the tab if neither the source and desination window are
@@ -7110,11 +7108,27 @@ function switchToTabHavingURI(aURI, aOpenNew, aOpenParams) {
     let browsers = aWindow.gBrowser.browsers;
     for (let i = 0; i < browsers.length; i++) {
       let browser = browsers[i];
-      if (browser.currentURI.equals(aURI)) {
+      if (ignoreFragment ? browser.currentURI.equalsExceptRef(aURI) :
+                           browser.currentURI.equals(aURI)) {
         // Focus the matching window & tab
         aWindow.focus();
         aWindow.gBrowser.tabContainer.selectedIndex = i;
+        if (ignoreFragment) {
+          let spec = aURI.spec;
+          if (!aURI.ref)
+            spec += "#";
+          browser.loadURI(spec);
+        }
         return true;
+      }
+      if (replaceQueryString) {
+        if (browser.currentURI.spec.split("?")[0] == aURI.spec.split("?")[0]) {
+          // Focus the matching window & tab
+          aWindow.focus();
+          aWindow.gBrowser.tabContainer.selectedIndex = i;
+          browser.loadURI(aURI.spec);
+          return true;
+        }
       }
     }
     return false;
