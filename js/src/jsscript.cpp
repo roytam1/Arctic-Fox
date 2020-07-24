@@ -323,8 +323,8 @@ Bindings::trace(JSTracer* trc)
     if (bindingArrayUsingTemporaryStorage())
         return;
 
-    for (Binding* b = bindingArray(), *end = b + count(); b != end; b++) {
-        PropertyName* name = b->name();
+    for (const Binding& b : *this) {
+        PropertyName* name = b.name();
         MarkStringUnbarriered(trc, &name, "bindingArray");
     }
 }
@@ -576,7 +576,6 @@ js::XDRScript(XDRState<mode>* xdr, HandleObject enclosingScope, HandleScript enc
         OwnSource,
         ExplicitUseStrict,
         SelfHosted,
-        IsCompileAndGo,
         HasSingleton,
         TreatAsRunOnce,
         HasLazyScript,
@@ -706,8 +705,6 @@ js::XDRScript(XDRState<mode>* xdr, HandleObject enclosingScope, HandleScript enc
             scriptBits |= (1 << IsLegacyGenerator);
         if (script->isStarGenerator())
             scriptBits |= (1 << IsStarGenerator);
-        if (script->compileAndGo())
-            scriptBits |= (1 << IsCompileAndGo);
         if (script->hasSingletons())
             scriptBits |= (1 << HasSingleton);
         if (script->treatAsRunOnce())
@@ -827,8 +824,6 @@ js::XDRScript(XDRState<mode>* xdr, HandleObject enclosingScope, HandleScript enc
             script->setNeedsArgsObj(true);
         if (scriptBits & (1 << IsGeneratorExp))
             script->isGeneratorExp_ = true;
-        if (scriptBits & (1 << IsCompileAndGo))
-            script->compileAndGo_ = true;
         if (scriptBits & (1 << HasSingleton))
             script->hasSingletons_ = true;
         if (scriptBits & (1 << TreatAsRunOnce))
@@ -2415,7 +2410,6 @@ JSScript::Create(ExclusiveContext *cx, HandleObject enclosingScope, bool savedCa
     script->savedCallerFun_ = savedCallerFun;
     script->initCompartment(cx);
 
-    script->compileAndGo_ = options.compileAndGo;
     script->hasPollutedGlobalScope_ = options.hasPollutedGlobalScope;
     script->selfHosted_ = options.selfHostingMode;
     script->noScriptRval_ = options.noScriptRval;
@@ -2586,7 +2580,7 @@ JSScript::fullyInitFromEmitter(ExclusiveContext* cx, HandleScript script, Byteco
     uint32_t mainLength = bce->offset();
     uint32_t prologLength = bce->prologOffset();
     uint32_t nsrcnotes;
-    if (!FinishTakingSrcNotes(cx, bce, &nsrcnotes))
+    if (!bce->finishTakingSrcNotes(&nsrcnotes))
         return false;
     uint32_t natoms = bce->atomIndices->count();
     if (!partiallyInit(cx, script,
@@ -2611,7 +2605,7 @@ JSScript::fullyInitFromEmitter(ExclusiveContext* cx, HandleScript script, Byteco
     jsbytecode* code = ssd->data;
     PodCopy<jsbytecode>(code, bce->prolog.code.begin(), prologLength);
     PodCopy<jsbytecode>(code + prologLength, bce->code().begin(), mainLength);
-    CopySrcNotes(bce, (jssrcnote*)(code + script->length()), nsrcnotes);
+    bce->copySrcNotes((jssrcnote*)(code + script->length()), nsrcnotes);
     InitAtomMap(bce->atomIndices.getMap(), ssd->atoms());
 
     if (!SaveSharedScriptData(cx, script, ssd, nsrcnotes))
@@ -3112,7 +3106,6 @@ js::CloneScript(JSContext *cx, HandleObject enclosingScope, HandleFunction fun, 
 
     CompileOptions options(cx);
     options.setMutedErrors(src->mutedErrors())
-           .setCompileAndGo(src->compileAndGo())
            .setHasPollutedScope(src->hasPollutedGlobalScope() ||
                                 polluted == HasPollutedGlobalScope)
            .setSelfHostingMode(src->selfHosted())

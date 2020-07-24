@@ -316,6 +316,9 @@ class Bindings
         return !callObjShape_->isEmptyShape();
     }
 
+    Binding* begin() const { return bindingArray(); }
+    Binding* end() const { return bindingArray() + count(); }
+
     static js::ThingRootKind rootKind() { return js::THING_ROOT_BINDINGS; }
     void trace(JSTracer* trc);
 };
@@ -925,9 +928,6 @@ class JSScript : public js::gc::TenuredCell
     // Code has "use strict"; explicitly.
     bool explicitUseStrict_:1;
 
-    // See Parser::compileAndGo.
-    bool compileAndGo_:1;
-
     // True if the script has a non-syntactic scope on its dynamic scope chain.
     // That is, there are objects about which we know nothing between the
     // outermost syntactic scope and the global.
@@ -1155,10 +1155,6 @@ class JSScript : public js::gc::TenuredCell
     }
 
     bool explicitUseStrict() const { return explicitUseStrict_; }
-
-    bool compileAndGo() const {
-        return compileAndGo_;
-    }
 
     bool hasPollutedGlobalScope() const {
         return hasPollutedGlobalScope_;
@@ -1779,7 +1775,9 @@ class BindingIter
  */
 class AliasedFormalIter
 {
-    const Binding* begin_, *p_, *end_;
+    const Binding* begin_;
+    const Binding* p_;
+    const Binding* end_;
     unsigned slot_;
 
     void settle() {
@@ -1807,7 +1805,7 @@ class LazyScript : public gc::TenuredCell
   public:
     class FreeVariable
     {
-        // Free variable names are possible tagged JSAtom* s.
+        // Variable name is stored as a tagged JSAtom pointer.
         uintptr_t bits_;
 
         static const uintptr_t HOISTED_USE_BIT = 0x1;
