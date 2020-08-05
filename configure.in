@@ -8961,9 +8961,6 @@ ac_configure_args="$ac_configure_args --prefix=$dist"
 if test "$MOZ_MEMORY"; then
    ac_configure_args="$ac_configure_args --enable-jemalloc"
 fi
-if test -n "$MOZ_GLUE_IN_PROGRAM"; then
-   export MOZ_GLUE_IN_PROGRAM
-fi
 if test -n "$ZLIB_IN_MOZGLUE"; then
    MOZ_ZLIB_LIBS=
 fi
@@ -8980,6 +8977,7 @@ export STLPORT_LIBS
 export JS_STANDALONE=no
 export MOZ_LINKER
 export ZLIB_IN_MOZGLUE
+export MOZ_MEMORY
 
 if ! test -e js; then
     mkdir js

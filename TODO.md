@@ -109,6 +109,7 @@
 - 1180854 - Record and expose Ion IC stub optimization info to Jit
 - 1169731 - [[Call]] on a class constructor should throw.
 - 1154115 - Rewrite the JSAPI profiling API to use a FrameHandle, a
+- 1154115 - Rewrite the JSAPI profiling API to use a FrameHandle, a
 - 1161584 - Add TrackedStrategy::SetProp_InlineCache. 
 - 1155788 - Make the Ion inner-window optimizations work again. 
 - 1154997 - Deal with self-hosted builtins when stringifying tracke
@@ -123,9 +124,8 @@
 -  1102048 style patches, check which still apply
 - Bug 1094888 - part 1 and 2
 
-- Bug 1144366 followup - Stop declaring multiple pointers on a single line
+https://bugzilla.mozilla.org/show_bug.cgi?id=1062473
 
-- Bug 1097987
 -  Bug 1149526 - Check HeapPtrs have GC lifetime r=terrence
 - Bug 1151981 - Remove the void* marking functions;
 - Bug 1150639 - Use a stricter off-thread check in triggerZoneGC
@@ -140,7 +140,9 @@ More session store stuff to check:
 - Bug 1243549 - Make sure that startup sanitization doesn't throw becau
 - Bug 1142034 - Don't show 'Restore All Crashed Tabs' when only one tab
 
+Lightweight themes stuff:
 
+- Bug 1148996 - Install a devedition lightweight theme on startup, then
 
 Not applying / Breaking build:
 Bug 1162569 - default engine files should be in the omni.ja file,
@@ -224,3 +226,11 @@ https://github.com/classilla/tenfourfox/issues/526
 * Harness: Tests To run: 55 | Total tests ran: 55 | Pass: 55 | Fail: 0 | Failed to load: 0
 * Language: Tests To run: 5052 | Total tests ran: 5052 | Pass: 4452 | Fail: 600 | Failed to load: 0
 * AnnexB: Tests To run: 81 | Total tests ran: 81 | Pass: 79 | Fail: 2 | Failed to load: 0
+# Backlog of Mozilla patches:
+(grossly ordered in dependency order, not always correct, oldest to work on at the bottom)
+
+- Bug 1533969 - Fix build error with newer glibc. (gettid)
+
+- Bug 1499277 - Remove unnecessary SCInput::readNativeEndian; fix SCInput::readPtr on big endian systems. r=sfink
+- 1499861 - issues when backporting on other collections
+- 1477632 - Always inline PLDHashTable::SearchTable(
