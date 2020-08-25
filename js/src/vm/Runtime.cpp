@@ -277,7 +277,7 @@ JSRuntime::init(uint32_t maxbytes, uint32_t maxNurseryBytes)
 
     const char* size = getenv("JSGC_MARK_STACK_LIMIT");
     if (size)
-        SetMarkStackLimit(this, atoi(size));
+        gc.setMarkStackLimit(atoi(size));
 
     ScopedJSDeletePtr<Zone> atomsZone(new_<Zone>(this));
     if (!atomsZone || !atomsZone->init(true))
@@ -523,7 +523,7 @@ JSRuntime::addSizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf, JS::Runtim
     rtSizes->gc.marker += gc.marker.sizeOfExcludingThis(mallocSizeOf);
     rtSizes->gc.nurseryCommitted += gc.nursery.sizeOfHeapCommitted();
     rtSizes->gc.nurseryDecommitted += gc.nursery.sizeOfHeapDecommitted();
-    rtSizes->gc.nurseryHugeSlots += gc.nursery.sizeOfHugeSlots(mallocSizeOf);
+    rtSizes->gc.nurseryMallocedBuffers += gc.nursery.sizeOfMallocedBuffers(mallocSizeOf);
     gc.storeBuffer.addSizeOfExcludingThis(mallocSizeOf, &rtSizes->gc);
 }
 
