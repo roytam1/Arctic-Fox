@@ -1080,6 +1080,38 @@ pref("browser.devedition.theme.enabled", false);
 // Enable the error console
 pref("devtools.errorconsole.enabled", true);
 
+// Toolbox preferences
+pref("devtools.toolbox.footer.height", 250);
+pref("devtools.toolbox.sidebar.width", 500);
+pref("devtools.toolbox.host", "bottom");
+pref("devtools.toolbox.selectedTool", "webconsole");
+pref("devtools.toolbox.toolbarSpec", '["splitconsole", "paintflashing toggle","tilt toggle","scratchpad","resize toggle","eyedropper","screenshot --fullpage", "rulers"]');
+pref("devtools.toolbox.sideEnabled", true);
+pref("devtools.toolbox.zoomValue", "1");
+pref("devtools.toolbox.splitconsoleEnabled", false);
+pref("devtools.toolbox.splitconsoleHeight", 100);
+
+// Toolbox Button preferences
+pref("devtools.command-button-pick.enabled", true);
+pref("devtools.command-button-frames.enabled", false);
+pref("devtools.command-button-splitconsole.enabled", true);
+pref("devtools.command-button-paintflashing.enabled", false);
+pref("devtools.command-button-tilt.enabled", false);
+pref("devtools.command-button-scratchpad.enabled", false);
+pref("devtools.command-button-responsive.enabled", true);
+pref("devtools.command-button-eyedropper.enabled", false);
+pref("devtools.command-button-screenshot.enabled", false);
+pref("devtools.command-button-rulers.enabled", false);
+
+// Enable the Performance tools
+pref("devtools.performance.enabled", true);
+
+// The default Performance UI settings
+pref("devtools.performance.memory.sample-probability", "0.05");
+pref("devtools.performance.memory.max-log-length", 2147483647); // Math.pow(2,31) - 1
+pref("devtools.performance.timeline.hidden-markers", "[]");
+pref("devtools.performance.ui.show-jit-optimizations", false);
+
 // The default service workers UI setting
 pref("devtools.serviceWorkers.testing.enabled", false);
 

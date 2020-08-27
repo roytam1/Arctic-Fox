@@ -23,13 +23,18 @@ const FRAME_SCRIPT_UTILS_URL = "chrome://global/content/devtools/frame-script-ut
 const EXAMPLE_URL = "http://example.com/browser/browser/devtools/performance/test/";
 const SIMPLE_URL = EXAMPLE_URL + "doc_simple-test.html";
 
+const MEMORY_SAMPLE_PROB_PREF = "devtools.performance.memory.sample-probability";
+const MEMORY_MAX_LOG_LEN_PREF = "devtools.performance.memory.max-log-length";
+
 const FRAMERATE_PREF = "devtools.performance.ui.enable-framerate";
 const MEMORY_PREF = "devtools.performance.ui.enable-memory";
+
 const PLATFORM_DATA_PREF = "devtools.performance.ui.show-platform-data";
 const IDLE_PREF = "devtools.performance.ui.show-idle-blocks";
 const INVERT_PREF = "devtools.performance.ui.invert-call-tree";
 const INVERT_FLAME_PREF = "devtools.performance.ui.invert-flame-graph";
 const FLATTEN_PREF = "devtools.performance.ui.flatten-tree-recursion";
+const JIT_PREF = "devtools.performance.ui.show-jit-optimizations";
 
 // All tests are asynchronous.
 waitForExplicitFinish();
@@ -44,17 +49,14 @@ let DEFAULT_PREFS = [
   "devtools.performance.ui.show-idle-blocks",
   "devtools.performance.ui.enable-memory",
   "devtools.performance.ui.enable-framerate",
-
-  // remove after bug 1075567 is resolved.
-  "devtools.performance_dev.enabled"
+  "devtools.performance.ui.show-jit-optimizations",
 ].reduce((prefs, pref) => {
   prefs[pref] = Services.prefs.getBoolPref(pref);
   return prefs;
 }, {});
 
-// Enable the new performance panel for all tests. Remove this after
-// bug 1075567 is resolved.
-Services.prefs.setBoolPref("devtools.performance_dev.enabled", true);
+// Enable the new performance panel for all tests.
+Services.prefs.setBoolPref("devtools.performance.enabled", true);
 // Enable logging for all the tests. Both the debugger server and frontend will
 // be affected by this pref.
 Services.prefs.setBoolPref("devtools.debugger.log", false);
@@ -183,8 +185,6 @@ function initBackend(aUrl, targetOps={}) {
     // TEST_MOCK_TIMELINE_ACTOR = true
     merge(target, targetOps);
 
-    yield gDevTools.showToolbox(target, "performance");
-
     let connection = getPerformanceActorsConnection(target);
     yield connection.open();
 
@@ -215,6 +215,51 @@ function initPerformance(aUrl, selectedTool="performance", targetOps={}) {
   });
 }
 
+/**
+ * Initializes a webconsole panel. Returns a target, panel and toolbox reference.
+ * Also returns a console property that allows calls to `profile` and `profileEnd`.
+ */
+function initConsole(aUrl) {
+  return Task.spawn(function*() {
+    let { target, toolbox, panel } = yield initPerformance(aUrl, "webconsole");
+    let { hud } = panel;
+    return {
+      target, toolbox, panel, console: {
+        profile: (s) => consoleExecute(hud, "profile", s),
+        profileEnd: (s) => consoleExecute(hud, "profileEnd", s)
+      }
+    };
+  });
+}
+
+function consoleExecute (console, method, val) {
+  let { ui, jsterm } = console;
+  let { promise, resolve } = Promise.defer();
+  let message = `console.${method}("${val}")`;
+
+  ui.on("new-messages", handler);
+  jsterm.execute(message);
+
+  let { console: c } = Cu.import("resource://gre/modules/devtools/Console.jsm", {});
+  function handler (event, messages) {
+    for (let msg of messages) {
+      if (msg.response._message === message) {
+        ui.off("new-messages", handler);
+        resolve();
+        return;
+      }
+    }
+  }
+  return promise;
+}
+
+function waitForProfilerConnection() {
+  let { promise, resolve } = Promise.defer();
+  Services.obs.addObserver(resolve, "performance-actors-connection-opened", false);
+  return promise.then(() =>
+    Services.obs.removeObserver(resolve, "performance-actors-connection-opened"));
+}
+
 function* teardown(panel) {
   info("Destroying the performance tool.");
 
@@ -237,19 +282,27 @@ function consoleMethod (...args) {
   if (!mm) {
     throw new Error("`loadFrameScripts()` must be called before using frame scripts.");
   }
+  // Terrible ugly hack -- this gets stringified when it uses the
+  // message manager, so an undefined arg in `console.profileEnd()`
+  // turns into a stringified "null", which is terrible. This method is only used
+  // for test helpers, so swap out the argument if its undefined with an empty string.
+  // Differences between empty string and undefined are tested on the front itself.
+  if (args[1] == null) {
+    args[1] = "";
+  }
   mm.sendAsyncMessage("devtools:test:console", args);
 }
 
-function* consoleProfile(connection, label) {
-  let notified = connection.once("profile");
+function* consoleProfile(win, label) {
+  let profileStart = once(win.PerformanceController, win.EVENTS.CONSOLE_RECORDING_STARTED);
   consoleMethod("profile", label);
-  yield notified;
+  yield profileStart;
 }
 
-function* consoleProfileEnd(connection) {
-  let notified = connection.once("profileEnd");
-  consoleMethod("profileEnd");
-  yield notified;
+function* consoleProfileEnd(win, label) {
+  let ended = once(win.PerformanceController, win.EVENTS.CONSOLE_RECORDING_STOPPED);
+  consoleMethod("profileEnd", label);
+  yield ended;
 }
 
 function command (button) {

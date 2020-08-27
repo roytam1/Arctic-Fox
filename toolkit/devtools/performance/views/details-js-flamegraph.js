@@ -24,21 +24,27 @@ let JsFlameGraphView = Heritage.extend(DetailsSubview, {
 
     this.graph = new FlameGraph($("#js-flamegraph-view"));
     this.graph.timelineTickUnits = L10N.getStr("graphs.ms");
+    this.graph.setTheme(PerformanceController.getTheme());
     yield this.graph.ready();
 
     this._onRangeChangeInGraph = this._onRangeChangeInGraph.bind(this);
+    this._onThemeChanged = this._onThemeChanged.bind(this);
 
+    PerformanceController.on(EVENTS.THEME_CHANGED, this._onThemeChanged);
     this.graph.on("selecting", this._onRangeChangeInGraph);
   }),
 
   /**
    * Unbinds events.
    */
-  destroy: function () {
+  destroy: Task.async(function* () {
     DetailsSubview.destroy.call(this);
 
+    PerformanceController.off(EVENTS.THEME_CHANGED, this._onThemeChanged);
     this.graph.off("selecting", this._onRangeChangeInGraph);
-  },
+
+    yield this.graph.destroy();
+  }),
 
   /**
    * Method for handling all the set up for rendering a new flamegraph.
@@ -53,10 +59,10 @@ let JsFlameGraphView = Heritage.extend(DetailsSubview, {
     let samples = profile.threads[0].samples;
 
     let data = FlameGraphUtils.createFlameGraphDataFromSamples(samples, {
-      invertStack: PerformanceController.getPref("invert-flame-graph"),
-      flattenRecursion: PerformanceController.getPref("flatten-tree-recursion"),
-      filterFrames: !PerformanceController.getPref("show-platform-data") && FrameNode.isContent,
-      showIdleBlocks: PerformanceController.getPref("show-idle-blocks") && L10N.getStr("table.idle")
+      invertStack: PerformanceController.getOption("invert-flame-graph"),
+      flattenRecursion: PerformanceController.getOption("flatten-tree-recursion"),
+      filterFrames: !PerformanceController.getOption("show-platform-data") && FrameNode.isContent,
+      showIdleBlocks: PerformanceController.getOption("show-idle-blocks") && L10N.getStr("table.idle")
     });
 
     this.graph.setData({ data,
@@ -89,6 +95,14 @@ let JsFlameGraphView = Heritage.extend(DetailsSubview, {
     let profile = recording.getProfile();
     let samples = profile.threads[0].samples;
     FlameGraphUtils.removeFromCache(samples);
+  },
+
+  /**
+   * Called when `devtools.theme` changes.
+   */
+  _onThemeChanged: function (_, theme) {
+    this.graph.setTheme(theme);
+    this.graph.refresh({ force: true });
   },
 
   toString: () => "[object JsFlameGraphView]"
