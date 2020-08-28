@@ -129,11 +129,19 @@ let onConnectionReady = Task.async(function*(aType, aTraits) {
   let gParent = document.getElementById("globalActors");
 
   // Build the Remote Process button
-  if (Object.keys(globals).length > 1) {
+  // If Fx<39, tab actors were used to be exposed on RootActor
+  // but in Fx>=39, chrome is debuggable via getProcess() and ChromeActor
+  if (globals.consoleActor || gClient.mainRoot.traits.allowChromeProcess) {
     let a = document.createElement("a");
     a.onclick = function() {
-      openToolbox(globals, true);
-
+      if (gClient.mainRoot.traits.allowChromeProcess) {
+        gClient.getProcess()
+               .then(aResponse => {
+                 openToolbox(aResponse.form, true);
+               });
+      } else if (globals.consoleActor) {
+        openToolbox(globals, true, "webconsole", false);
+      }
     }
     a.title = a.textContent = window.l10n.GetStringFromName("mainProcess");
     a.className = "remote-process";

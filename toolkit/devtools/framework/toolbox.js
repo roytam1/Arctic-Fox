@@ -122,6 +122,7 @@ function Toolbox(target, selectedTool, hostType, hostOptions) {
   this._saveSplitConsoleHeight = this._saveSplitConsoleHeight.bind(this);
   this._onFocus = this._onFocus.bind(this);
   this._showDevEditionPromo = this._showDevEditionPromo.bind(this);
+  this._updateTextboxMenuItems = this._updateTextboxMenuItems.bind(this);
 
   this._target.on("close", this.destroy);
 
@@ -336,6 +337,11 @@ Toolbox.prototype = {
       let framesMenu = this.doc.getElementById("command-button-frames");
       framesMenu.addEventListener("command", this.selectFrame, true);
 
+      this.textboxContextMenuPopup =
+        this.doc.getElementById("toolbox-textbox-context-popup");
+      this.textboxContextMenuPopup.addEventListener("popupshowing",
+        this._updateTextboxMenuItems, true);
+
       this._buildDockButtons();
       this._buildOptions();
       this._buildTabs();
@@ -374,11 +380,14 @@ Toolbox.prototype = {
         framesPromise
       ]);
 
+      // Lazily connect to the profiler here and don't wait for it to complete,
+      // used to intercept console.profile calls before the performance tools are open.
       let profilerReady = this._connectProfiler();
 
-      // Only wait for the profiler initialization during tests. Otherwise,
-      // lazily load this. This is to intercept console.profile calls; the performance
-      // tools will explicitly wait for the connection opening when opened.
+      // However, while testing, we must wait for the performance connection to finish,
+      // as most tests shut down without waiting for a toolbox destruction event,
+      // resulting in the shared profiler connection being opened and closed
+      // outside of the test that originally opened the toolbox.
       if (gDevTools.testing) {
         yield profilerReady;
       }
@@ -1645,13 +1654,13 @@ Toolbox.prototype = {
   },
 
   _getOsCpu: function() {
-    if (oscpu.contains("NT 5.1") || oscpu.contains("NT 5.2")) return 0;
-    if (oscpu.contains("NT 6.0")) return 1;
-    if (oscpu.contains("NT 6.1")) return 2;
-    if (oscpu.contains("NT 6.2")) return 3;
-    if (oscpu.contains("NT 6.3")) return 4;
-    if (oscpu.contains("OS X"))   return 5;
-    if (oscpu.contains("Linux"))  return 6;
+    if (oscpu.includes("NT 5.1") || oscpu.includes("NT 5.2")) return 0;
+    if (oscpu.includes("NT 6.0")) return 1;
+    if (oscpu.includes("NT 6.1")) return 2;
+    if (oscpu.includes("NT 6.2")) return 3;
+    if (oscpu.includes("NT 6.3")) return 4;
+    if (oscpu.includes("OS X"))   return 5;
+    if (oscpu.includes("Linux"))  return 6;
 
     return 12; // Other OS.
   },
@@ -1701,6 +1710,8 @@ Toolbox.prototype = {
         this._saveSplitConsoleHeight);
     }
     this.closeButton.removeEventListener("command", this.destroy, true);
+    this.textboxContextMenuPopup.removeEventListener("popupshowing",
+      this._updateTextboxMenuItems, true);
 
     let outstanding = [];
     for (let [id, panel] of this._toolPanels) {
@@ -1818,6 +1829,15 @@ Toolbox.prototype = {
     showDoorhanger({ window, type: "deveditionpromo" });
   },
 
+  /**
+   * Enable / disable necessary textbox menu items using globalOverlay.js.
+   */
+  _updateTextboxMenuItems: function() {
+    let window = this.doc.defaultView;
+    ['cmd_undo', 'cmd_delete', 'cmd_cut',
+     'cmd_copy', 'cmd_paste','cmd_selectAll'].forEach(window.goUpdateCommand);
+  },
+
   getPerformanceActorsConnection: function() {
     if (!this._performanceConnection) {
       this._performanceConnection = getPerformanceActorsConnection(this.target);
@@ -1842,7 +1862,9 @@ Toolbox.prototype = {
   }),
 
   /**
-   * Disconnects the underlying Performance Actor Connection.
+   * Disconnects the underlying Performance Actor Connection. If the connection
+   * has not finished initializing, as opening a toolbox does not wait,
+   * the performance connection destroy method will wait for it on its own.
    */
   _disconnectProfiler: Task.async(function*() {
     if (!this._performanceConnection) {

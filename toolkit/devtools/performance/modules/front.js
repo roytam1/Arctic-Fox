@@ -100,9 +100,9 @@ function PerformanceActorsConnection(target) {
 
 PerformanceActorsConnection.prototype = {
 
-  // Properties set when mocks are being used
-  _usingMockMemory: false,
-  _usingMockTimeline: false,
+  // Properties set based off of server actor support
+  _memorySupported: true,
+  _timelineSupported: true,
 
   /**
    * Initializes a connection to the profiler and other miscellaneous actors.
@@ -144,7 +144,9 @@ PerformanceActorsConnection.prototype = {
    */
   destroy: Task.async(function*() {
     if (this._connecting && !this._connected) {
-      console.warn("Attempting to destroy SharedPerformanceActorsConnection before initialization completion. If testing, ensure `gDevTools.testing` is set.");
+      yield this._connecting.promise;
+    } else if (!this._connected) {
+      return;
     }
 
     yield this._unregisterListeners();
@@ -152,26 +154,16 @@ PerformanceActorsConnection.prototype = {
 
     this._memory = this._timeline = this._profiler = this._target = this._client = null;
     this._connected = false;
+    this._connecting = null;
   }),
 
   /**
-   * Initializes a connection to the profiler actor.
+   * Initializes a connection to the profiler actor. Uses a facade around the ProfilerFront
+   * for similarity to the other actors in the shared connection.
    */
   _connectProfilerActor: Task.async(function*() {
-    // Chrome and content process targets already have obtained a reference
-    // to the profiler tab actor. Use it immediately.
-    if (this._target.form && this._target.form.profilerActor) {
-      this._profiler = this._target.form.profilerActor;
-    }
-    // Check if we already have a grip to the `listTabs` response object
-    // and, if we do, use it to get to the profiler actor.
-    else if (this._target.root && this._target.root.profilerActor) {
-      this._profiler = this._target.root.profilerActor;
-    }
-    // Otherwise, call `listTabs`.
-    else {
-      this._profiler = (yield listTabs(this._client)).profilerActor;
-    }
+    this._profiler = new compatibility.ProfilerFront(this._target);
+    yield this._profiler.connect();
   }),
 
   /**
@@ -182,9 +174,9 @@ PerformanceActorsConnection.prototype = {
     if (supported) {
       this._timeline = new TimelineFront(this._target.client, this._target.form);
     } else {
-      this._usingMockTimeline = true;
       this._timeline = new compatibility.MockTimelineFront();
     }
+    this._timelineSupported = supported;
   },
 
   /**
@@ -195,9 +187,9 @@ PerformanceActorsConnection.prototype = {
     if (supported) {
       this._memory = new MemoryFront(this._target.client, this._target.form);
     } else {
-      this._usingMockMemory = true;
       this._memory = new compatibility.MockMemoryFront();
     }
+    this._memorySupported = supported;
   }),
 
   /**
@@ -253,12 +245,7 @@ PerformanceActorsConnection.prototype = {
   _request: function(actor, method, ...args) {
     // Handle requests to the profiler actor.
     if (actor == "profiler") {
-      let deferred = promise.defer();
-      let data = args[0] || {};
-      data.to = this._profiler;
-      data.type = method;
-      this._client.request(data, deferred.resolve);
-      return deferred.promise;
+      return this._profiler._request(method, ...args);
     }
 
     // Handle requests to the timeline actor.
@@ -331,10 +318,20 @@ PerformanceActorsConnection.prototype = {
   /**
    * Invoked whenever `console.profileEnd` is called.
    *
-   * @param object profilerData
-   *        The dump of data from the profiler triggered by this console.profileEnd call.
+   * @param string profileLabel
+   *        The provided string argument if available; undefined otherwise.
+   * @param number currentTime
+   *        The time (in milliseconds) when the call was made, relative to when
+   *        the nsIProfiler module was started.
    */
-  _onConsoleProfileEnd: Task.async(function *(profilerData) {
+  _onConsoleProfileEnd: Task.async(function *(data) {
+    // If no data, abort; can occur if profiler isn't running and we get a surprise
+    // call to console.profileEnd()
+    if (!data) {
+      return;
+    }
+    let { profileLabel, currentTime: endTime } = data;
+
     let pending = this._recordings.filter(r => r.isConsole() && r.isRecording());
     if (pending.length === 0) {
       return;
@@ -343,8 +340,8 @@ PerformanceActorsConnection.prototype = {
     let model;
     // Try to find the corresponding `console.profile` call if
     // a label was used in profileEnd(). If no matches, abort.
-    if (profilerData.profileLabel) {
-      model = pending.find(e => e.getLabel() === profilerData.profileLabel);
+    if (profileLabel) {
+      model = pending.find(e => e.getLabel() === profileLabel);
     }
     // If no label supplied, pop off the most recent pending console recording
     else {
@@ -430,7 +427,7 @@ PerformanceActorsConnection.prototype = {
   stopRecording: Task.async(function*(model) {
     // If model isn't in the PerformanceActorsConnections internal store,
     // then do nothing.
-    if (!this._recordings.includes(model)) {
+    if (this._recordings.indexOf(model) === -1) {
       return;
     }
 
@@ -445,7 +442,8 @@ PerformanceActorsConnection.prototype = {
     this._recordings.splice(this._recordings.indexOf(model), 1);
 
     let config = model.getConfiguration();
-    let profilerData = yield this._request("profiler", "getProfile");
+    let startTime = model.getProfilerStartTime();
+    let profilerData = yield this._request("profiler", "getProfile", { startTime });
     let memoryEndTime = Date.now();
     let timelineEndTime = Date.now();
 
@@ -619,8 +617,8 @@ function PerformanceFront(connection) {
   this._request = connection._request;
 
   // Set when mocks are being used
-  this._usingMockMemory = connection._usingMockMemory;
-  this._usingMockTimeline = connection._usingMockTimeline;
+  this._memorySupported = connection._memorySupported;
+  this._timelineSupported = connection._timelineSupported;
 
   // Pipe the console profile events from the connection
   // to the front so that the UI can listen.
@@ -635,7 +633,8 @@ PerformanceFront.prototype = {
    *
    * @param object options
    *        An options object to pass to the actors. Supported properties are
-   *        `withTicks`, `withMemory` and `withAllocations`, `probability` and `maxLogLength`.
+   *        `withTicks`, `withMemory` and `withAllocations`,
+   *        `probability` and `maxLogLength`.
    * @return object
    *         A promise that is resolved once recording has started.
    */
@@ -657,31 +656,24 @@ PerformanceFront.prototype = {
   },
 
   /**
-   * Returns an object indicating if mock actors are being used or not.
+   * Returns an object indicating what server actors are available and
+   * initialized. A falsy value indicates that the server does not support
+   * that feature, or that mock actors were explicitly requested (tests).
    */
-  getMocksInUse: function () {
+  getActorSupport: function () {
     return {
-      memory: this._usingMockMemory,
-      timeline: this._usingMockTimeline
+      memory: this._memorySupported,
+      timeline: this._timelineSupported
     };
   }
 };
-
-/**
- * Returns a promise resolved with a listing of all the tabs in the
- * provided thread client.
- */
-function listTabs(client) {
-  let deferred = promise.defer();
-  client.listTabs(deferred.resolve);
-  return deferred.promise;
-}
 
 /**
  * Creates an object of configurations based off of preferences for a RecordingModel.
  */
 function getRecordingModelPrefs () {
   return {
+    withMarkers: true,
     withMemory: Services.prefs.getBoolPref("devtools.performance.ui.enable-memory"),
     withTicks: Services.prefs.getBoolPref("devtools.performance.ui.enable-framerate"),
     withAllocations: Services.prefs.getBoolPref("devtools.performance.ui.enable-memory"),
