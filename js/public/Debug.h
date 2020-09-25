@@ -332,7 +332,7 @@ IsDebugger(JS::Value val);
 // call the appropriate |Entry| member function to indicate where we've begun
 // execution.
 
-class MOZ_STACK_CLASS AutoEntryMonitor {
+class MOZ_STACK_CLASS JS_PUBLIC_API(AutoEntryMonitor) {
     JSRuntime* runtime_;
     AutoEntryMonitor* savedMonitor_;
 
