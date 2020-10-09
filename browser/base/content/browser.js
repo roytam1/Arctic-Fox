@@ -35,6 +35,10 @@ XPCOMUtils.defineLazyModuleGetter(this, "AboutHome",
                                   "resource:///modules/AboutHome.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "Log",
                                   "resource://gre/modules/Log.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "AppConstants",
+                                  "resource://gre/modules/AppConstants.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "UpdateChannel",
+                                  "resource://gre/modules/UpdateChannel.jsm");
 XPCOMUtils.defineLazyServiceGetter(this, "Favicons",
                                    "@mozilla.org/browser/favicon-service;1",
                                    "mozIAsyncFavicons");
@@ -168,7 +172,9 @@ XPCOMUtils.defineLazyModuleGetter(this, "FormValidationHandler",
 
 #ifdef MOZ_CRASHREPORTER
 XPCOMUtils.defineLazyModuleGetter(this, "TabCrashReporter",
-  "resource:///modules/TabCrashReporter.jsm");
+  "resource:///modules/ContentCrashReporters.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "PluginCrashReporter",
+  "resource:///modules/ContentCrashReporters.jsm");
 #endif
 
 XPCOMUtils.defineLazyModuleGetter(this, "SessionStore",
@@ -870,7 +876,7 @@ var gBrowserInit = {
   onLoad: function() {
     gBrowser.addEventListener("DOMUpdatePageReport", gPopupBlockerObserver, false);
 
-    Services.obs.addObserver(gPluginHandler.pluginCrashed, "plugin-crashed", false);
+    Services.obs.addObserver(gPluginHandler.NPAPIPluginCrashed, "plugin-crashed", false);
 
     window.addEventListener("AppCommand", HandleAppCommandEvent, true);
 
@@ -1006,7 +1012,6 @@ var gBrowserInit = {
     TabsOnTop.init();
     gPrivateBrowsingUI.init();
     TabsInTitlebar.init();
-    ReadingListUI.init();
     retrieveToolbarIconsizesFromTheme();
     ToolbarIconColor.init();
 
@@ -1198,6 +1203,7 @@ var gBrowserInit = {
     if (gMultiProcessBrowser)
       TabCrashReporter.init();
 #endif
+    ReadingListUI.init();
 
     SidebarUI.startDelayedLoad();
 
@@ -1469,7 +1475,7 @@ var gBrowserInit = {
 
     FullScreen.uninit();
 
-    Services.obs.removeObserver(gPluginHandler.pluginCrashed, "plugin-crashed");
+    Services.obs.removeObserver(gPluginHandler.NPAPIPluginCrashed, "plugin-crashed");
 
     try {
       gBrowser.removeProgressListener(window.XULBrowserWindow);
@@ -2719,7 +2725,7 @@ let BrowserOnClick = {
       version: 1,
       build: gAppInfo.appBuildID,
       product: gAppInfo.name,
-      channel: Services.prefs.getCharPref("app.update.channel")
+      channel: UpdateChannel.get()
     }
 
     let reportURL = Services.prefs.getCharPref("security.ssl.errorReporting.url");
@@ -3976,6 +3982,11 @@ var XULBrowserWindow = {
   },
 
   showTooltip: function (x, y, tooltip) {
+    if (Cc["@mozilla.org/widget/dragservice;1"].getService(Ci.nsIDragService).
+        getCurrentSession()) {
+      return;
+    }
+
     // The x,y coordinates are relative to the <browser> element using
     // the chrome zoom level.
     let elt = document.getElementById("remoteBrowserTooltip");
@@ -7084,6 +7095,14 @@ let gRemoteTabsUI = {
       // e10s isn't supported in safe mode, so don't show the menu items for it
       return;
     }
+
+#ifdef XP_MACOSX
+    if (Services.prefs.getBoolPref("layers.acceleration.disabled")) {
+      // On OS X, "Disable Hardware Acceleration" also disables OMTC and forces
+      // a fallback to Basic Layers. This is incompatible with e10s.
+      return;
+    }
+#endif
 
     let newRemoteWindow = document.getElementById("menu_newRemoteWindow");
     let newNonRemoteWindow = document.getElementById("menu_newNonRemoteWindow");
