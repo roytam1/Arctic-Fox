@@ -146,6 +146,9 @@ IsObjectEscaped(MInstruction* ins, JSObject* objDefault = nullptr)
             JitSpewDef(JitSpew_Escape, "  is escaped by\n", def);
             return true;
 
+          case MDefinition::Op_PostWriteBarrier:
+            break;
+
           case MDefinition::Op_Slots: {
 #ifdef DEBUG
             // Assert that MSlots are only used by MStoreSlot and MLoadSlot.
@@ -253,6 +256,7 @@ class ObjectMemoryView : public MDefinitionVisitorDefaultNoop
     void visitObjectState(MObjectState* ins);
     void visitStoreFixedSlot(MStoreFixedSlot* ins);
     void visitLoadFixedSlot(MLoadFixedSlot* ins);
+    void visitPostWriteBarrier(MPostWriteBarrier* ins);
     void visitStoreSlot(MStoreSlot* ins);
     void visitLoadSlot(MLoadSlot* ins);
     void visitGuardShape(MGuardShape* ins);
@@ -460,6 +464,17 @@ ObjectMemoryView::visitLoadFixedSlot(MLoadFixedSlot* ins)
 }
 
 void
+ObjectMemoryView::visitPostWriteBarrier(MPostWriteBarrier* ins)
+{
+    // Skip loads made on other objects.
+    if (ins->object() != obj_)
+        return;
+
+    // Remove original instruction.
+    ins->block()->discard(ins);
+}
+
+void
 ObjectMemoryView::visitStoreSlot(MStoreSlot* ins)
 {
     // Skip stores made on other objects.
@@ -567,13 +582,6 @@ IsArrayEscaped(MInstruction* ins)
     MOZ_ASSERT(ins->type() == MIRType_Object);
     MOZ_ASSERT(ins->isNewArray());
     uint32_t count = ins->toNewArray()->count();
-
-    // The array is probably too large to be represented efficiently with
-    // MArrayState, and we do not want to make huge allocations during bailouts.
-    if (ins->toNewArray()->allocatingBehaviour() == NewArray_Unallocating) {
-        JitSpewDef(JitSpew_Escape, "Array is not allocated\n", ins);
-        return true;
-    }
 
     JSObject* obj = ins->toNewArray()->templateObject();
     if (!obj || obj->is<UnboxedArrayObject>())
@@ -1037,11 +1045,12 @@ ArrayMemoryView::visitArrayLength(MArrayLength* ins)
 }
 
 bool
-ScalarReplacement(MIRGenerator* mir, MIRGraph& graph)
+ScalarReplacement(MIRGenerator* mir, MIRGraph& graph, bool* success)
 {
     EmulateStateOf<ObjectMemoryView> replaceObject(mir, graph);
     EmulateStateOf<ArrayMemoryView> replaceArray(mir, graph);
     bool addedPhi = false;
+    *success = false;
 
     for (ReversePostorderIterator block = graph.rpoBegin(); block != graph.rpoEnd(); block++) {
         if (mir->shouldCancel("Scalar Replacement (main loop)"))
@@ -1055,6 +1064,7 @@ ScalarReplacement(MIRGenerator* mir, MIRGraph& graph)
                 if (!replaceObject.run(view))
                     return false;
                 view.assertSuccess();
+                *success = true;
                 addedPhi = true;
                 continue;
             }
@@ -1064,6 +1074,7 @@ ScalarReplacement(MIRGenerator* mir, MIRGraph& graph)
                 if (!replaceArray.run(view))
                     return false;
                 view.assertSuccess();
+                *success = true;
                 addedPhi = true;
                 continue;
             }
