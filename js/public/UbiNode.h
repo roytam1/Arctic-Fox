@@ -161,7 +161,7 @@ using mozilla::UniquePtr;
 
 // The base class implemented by each ubi::Node referent type. Subclasses must
 // not add data members to this class.
-class Base {
+class JS_FRIEND_API(Base) {
     friend class Node;
 
     // For performance's sake, we'd prefer to avoid a virtual destructor; and
@@ -267,7 +267,7 @@ class Base {
 // Base that represents a pointer to the referent type. It must also
 // include the members described here.
 template<typename Referent>
-struct Concrete {
+struct JS_FRIEND_API(Concrete) {
     // The specific char16_t array returned by Concrete<T>::typeName.
     static const char16_t concreteTypeName[];
 
@@ -288,7 +288,7 @@ struct Concrete {
 
 // A container for a Base instance; all members simply forward to the contained
 // instance.  This container allows us to pass ubi::Node instances by value.
-class Node {
+class JS_FRIEND_API(Node) {
     // Storage in which we allocate Base subclasses.
     mozilla::AlignedStorage2<Base> storage;
     Base* base() { return storage.addr(); }
@@ -578,7 +578,7 @@ class PreComputedEdgeRange : public EdgeRange {
 //
 //        ...
 //    }
-class MOZ_STACK_CLASS RootList {
+class MOZ_STACK_CLASS JS_FRIEND_API(RootList) {
     Maybe<AutoCheckCannotGC>& noGC;
     JSContext*               cx;
 
@@ -609,7 +609,7 @@ class MOZ_STACK_CLASS RootList {
 // Concrete classes for ubi::Node referent types.
 
 template<>
-struct Concrete<RootList> : public Base {
+struct JS_FRIEND_API(Concrete<RootList>) : public Base {
     UniquePtr<EdgeRange> edges(JSContext* cx, bool wantNames) const override;
     const char16_t* typeName() const override { return concreteTypeName; }
 
@@ -625,7 +625,7 @@ struct Concrete<RootList> : public Base {
 // A reusable ubi::Concrete specialization base class for types supported by
 // JS_TraceChildren.
 template<typename Referent>
-class TracerConcrete : public Base {
+class JS_FRIEND_API(TracerConcrete) : public Base {
     const char16_t* typeName() const override { return concreteTypeName; }
     UniquePtr<EdgeRange> edges(JSContext*, bool wantNames) const override;
     JS::Zone* zone() const override;
@@ -641,7 +641,7 @@ class TracerConcrete : public Base {
 
 // For JS_TraceChildren-based types that have a 'compartment' method.
 template<typename Referent>
-class TracerConcreteWithCompartment : public TracerConcrete<Referent> {
+class JS_FRIEND_API(TracerConcreteWithCompartment) : public TracerConcrete<Referent> {
     typedef TracerConcrete<Referent> TracerBase;
     JSCompartment* compartment() const override;
 
@@ -661,7 +661,7 @@ template<> struct Concrete<JSScript> : TracerConcreteWithCompartment<JSScript> {
 
 // The JSObject specialization.
 template<>
-class Concrete<JSObject> : public TracerConcreteWithCompartment<JSObject> {
+class JS_FRIEND_API(Concrete<JSObject>) : public TracerConcreteWithCompartment<JSObject> {
     const char* jsObjectClassName() const override;
     bool jsObjectConstructorName(JSContext* cx,
                                  UniquePtr<char16_t[], JS::FreePolicy>& outName) const override;
@@ -689,7 +689,7 @@ template<> struct Concrete<JSString> : TracerConcrete<JSString> {
 
 // The ubi::Node null pointer. Any attempt to operate on a null ubi::Node asserts.
 template<>
-class Concrete<void> : public Base {
+class JS_FRIEND_API(Concrete<void>) : public Base {
     const char16_t* typeName() const override;
     size_t size(mozilla::MallocSizeOf mallocSizeOf) const override;
     UniquePtr<EdgeRange> edges(JSContext* cx, bool wantNames) const override;
