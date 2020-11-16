@@ -587,6 +587,7 @@ class IonBuilder
                                             TypedObjectPrediction objTypeReprs,
                                             TypedObjectPrediction elemTypeReprs,
                                             int32_t elemSize);
+    TemporaryTypeSet* computeHeapType(const TemporaryTypeSet* objTypes, const jsid id);
 
     enum BoundsChecking { DoBoundsCheck, SkipBoundsCheck };
 
@@ -818,6 +819,8 @@ class IonBuilder
                                   MSimdBinaryComp::Operation op, SimdTypeDescr::Type compType);
     InliningStatus inlineUnarySimd(CallInfo& callInfo, JSNative native,
                                    MSimdUnaryArith::Operation op, SimdTypeDescr::Type type);
+    InliningStatus inlineSimdExtractLane(CallInfo& callInfo, JSNative native,
+                                         SimdTypeDescr::Type type);
     InliningStatus inlineSimdReplaceLane(CallInfo& callInfo, JSNative native,
                                          SimdTypeDescr::Type type);
     InliningStatus inlineSimdSplat(CallInfo& callInfo, JSNative native, SimdTypeDescr::Type type);
@@ -1322,6 +1325,13 @@ class CallInfo
     MDefinition* getArg(uint32_t i) const {
         MOZ_ASSERT(i < argc());
         return args_[i];
+    }
+
+    MDefinition* getArgWithDefault(uint32_t i, MDefinition* defaultValue) const {
+        if (i < argc())
+            return args_[i];
+
+        return defaultValue;
     }
 
     void setArg(uint32_t i, MDefinition* def) {
