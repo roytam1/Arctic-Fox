@@ -4430,6 +4430,9 @@ pref("layers.force-active", false);
 // platform and are the optimal surface type.
 pref("layers.gralloc.disable", false);
 
+// Don't use compositor-lru on this platform
+pref("layers.compositor-lru-size", 0);
+
 // Enable/Disable the geolocation API for content
 pref("geo.enabled", true);
 
@@ -4477,7 +4480,6 @@ pref("alerts.durationImmediate", 20000);
 // DOM full-screen API.
 pref("full-screen-api.enabled", false);
 pref("full-screen-api.allow-trusted-requests-only", true);
-pref("full-screen-api.content-only", false);
 pref("full-screen-api.pointer-lock.enabled", true);
 
 // DOM idle observers API

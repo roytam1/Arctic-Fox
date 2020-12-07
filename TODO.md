@@ -101,6 +101,8 @@ Bug 1178961 - Restore the std::string fix from bug 1167230 r=BenWa
 - Bug 1123516 - 2015-06-30 - Implement maplike/setlike
 - Bug 1169268 - 2015-06-24 - Handle CFHTML data better. r=ndeakin 
 - Bug 1175535 - Don't require objects embedded in MIR nodes to always b (remove gen->alloc() for alloc)
+
+- Bug 1152326 - When processing plugin updates only update the visibili
 - Bug 1109354  (2015-06-15) - prefer Firefox default engines over profile-installed p
 - Bug 1165486 2015-06-21 - Rename hasPollutedGlobalScope to hasNonSyntacticScope. (and related)
 - Bug 1173255 - 2015-06-18 - Cleanup MediaManager e10s code in prep for deviceId con
@@ -152,8 +154,6 @@ Bug 1178961 - Restore the std::string fix from bug 1167230 r=BenWa
 - Bug 1154053 - 2015-05-06 - Limit concurrency of e10s memory reporting. r=erahm 
 - Bug 1160887 - 2015-05-06 - Fix various unboxed object bugs, r=jandem,terrence. 
 - Bug 1159540 -2015-04-29 - Organize and comment the marking paths; r=sfink 
-- Bug 1157279. Escaping CSS identifiers should use lowercase letters fo
-- Bug 1032848 - Part 1: Implement WebIDL for HTMLCanvasElement::Capture
 -  1102048 style patches, check which still apply
 
 https://bugzilla.mozilla.org/show_bug.cgi?id=1062473
@@ -184,9 +184,6 @@ ARM fixes to check
 Lightweight themes stuff:
 
 - Bug 1148996 - Install a devedition lightweight theme on startup, then
-
-Not applying / Breaking build:
-Bug 1162569 - default engine files should be in the omni.ja file,
 
 
 Check with Roy Tam:
