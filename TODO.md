@@ -48,6 +48,7 @@
 - Bug 1279303 - 2017-07-27 - Implement change to O.getOwnPropertyDescriptors and upd
 - Bug 1245024 - 2016-06-09 - Implement Object.getOwnPropertyDescriptors. r=efaust,bz (check https://forum.manjaro.org/ still works after applying)
 - Bug 1266391 - 2016-04-21 Introduce an enum class mozilla::unicode::Script, and u
+- Bug 1209100 - 2016-03-21 - Back out bug 1165185 on inbound.
 - Bug 1255511 - 2016-03-15 Skip beforeunload prompts once nsIAppStartup shuttingDo
 - Bug 1252262 - 2016-03-08 - Don't combine the client offset into the outer rect for
 - Bug 1249787 - 2016-02-20 - BaldrMonkey: Fix wasm string hex escape parsing endiann
@@ -99,6 +100,7 @@ Bug 1178961 - Restore the std::string fix from bug 1167230 r=BenWa
 - Bug 1210607 - Check for null compartment in PopulateReport
 - Bug 1127618 - make push caches work in e10s. r=mcmanus r=froydnj IGNORE IDL
 - Bug 1123516 - 2015-06-30 - Implement maplike/setlike
+- Bug 1157569 - 2015-06-27 - from part 13 onwards
 - Bug 1169268 - 2015-06-24 - Handle CFHTML data better. r=ndeakin 
 - Bug 1175535 - Don't require objects embedded in MIR nodes to always b (remove gen->alloc() for alloc)
 
@@ -106,6 +108,7 @@ Bug 1178961 - Restore the std::string fix from bug 1167230 r=BenWa
 - Bug 1109354  (2015-06-15) - prefer Firefox default engines over profile-installed p
 - Bug 1165486 2015-06-21 - Rename hasPollutedGlobalScope to hasNonSyntacticScope. (and related)
 - Bug 1173255 - 2015-06-18 - Cleanup MediaManager e10s code in prep for deviceId con
+- Bug 1174450 - 2015-06-16 -  part 1 to 14
 - Bug 1174372 - Initialize ExecutableAllocator static fields in JS_Init
 - remaining parts of Bug 968923 (2015-06)
 - Bug 1171555 - Remove overly verbose ServiceWorker warnings.
