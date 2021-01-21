@@ -32,6 +32,7 @@
 #include "nsExpirationTracker.h"
 #include "nsClassHashtable.h"
 #include "prclist.h"
+#include <bitset>                        // for member
 
 class imgIRequest;
 class nsAString;
@@ -49,6 +50,7 @@ class nsIChannel;
 class nsIContent;
 class nsIContentSink;
 class nsIDocShell;
+class nsIDocShellTreeItem;
 class nsIDocumentEncoder;
 class nsIDocumentObserver;
 class nsIDOMDocument;
@@ -80,11 +82,11 @@ class nsSMILAnimationController;
 class nsStyleSet;
 class nsTextNode;
 class nsWindowSizes;
-class nsSmallVoidArray;
 class nsDOMCaretPosition;
 class nsViewportInfo;
 class nsIGlobalObject;
 struct nsCSSSelectorList;
+struct FullscreenRequest; // For nsIDocument::HandlePendingFullscreenRequest
 
 namespace mozilla {
 class CSSStyleSheet;
@@ -149,6 +151,16 @@ typedef CallbackObjectHolder<NodeFilter, nsIDOMNodeFilter> NodeFilterHolder;
 struct FullScreenOptions {
   FullScreenOptions();
   nsRefPtr<gfx::VRHMDInfo> mVRHMDDevice;
+  // This value should be true if the fullscreen request is
+  // originated from chrome code.
+  bool mIsCallerChrome = false;
+  // This value denotes whether we should trigger a NewOrigin event if
+  // requesting fullscreen in its document causes the origin which is
+  // fullscreen to change. We may want *not* to trigger that event if
+  // we're calling RequestFullScreen() as part of a continuation of a
+  // request in a subdocument in different process, whereupon the caller
+  // need to send some notification itself with the real origin.
+  bool mShouldNotifyNewOrigin = true;
 };
 
 } // namespace dom
@@ -1185,6 +1197,22 @@ public:
    */
   static void ExitFullscreen(nsIDocument* aDocument, bool aRunAsync);
 
+  /**
+   * Handles one single fullscreen request, updates `aHandled` if the request
+   * is handled, and returns whether this request should be removed from the
+   * request queue.
+   */
+  static bool HandlePendingFullscreenRequest(const FullscreenRequest& aRequest,
+                                             nsIDocShellTreeItem* aRootShell,
+                                             bool* aHandled);
+
+  /**
+   * Handles any pending fullscreen in aDocument or its subdocuments.
+   *
+   * Returns whether there is any fullscreen request handled.
+   */
+  static bool HandlePendingFullscreenRequests(nsIDocument* aDocument);
+
   virtual void RequestPointerLock(Element* aElement) = 0;
 
   static void UnlockPointer(nsIDocument* aDoc = nullptr);
@@ -2061,6 +2089,11 @@ public:
    */
   virtual bool IsDocumentRightToLeft() { return false; }
 
+  /**
+   * Called by Parser for link rel=preconnect
+   */
+  virtual void MaybePreconnect(nsIURI* uri) = 0;
+
   enum DocumentTheme {
     Doc_Theme_Uninitialized, // not determined yet
     Doc_Theme_None,
@@ -2108,9 +2141,8 @@ public:
   /**
    * This method returns _all_ the elements in this document which
    * have id aElementId, if there are any.  Otherwise it returns null.
-   * The entries of the nsSmallVoidArray are Element*
    */
-  virtual const nsSmallVoidArray* GetAllElementsForId(const nsAString& aElementId) const = 0;
+  virtual const nsTArray<Element*>* GetAllElementsForId(const nsAString& aElementId) const = 0;
 
   /**
    * Lookup an image element using its associated ID, which is usually provided
@@ -2176,6 +2208,10 @@ public:
   virtual nsresult AddPlugin(nsIObjectLoadingContent* aPlugin) = 0;
   virtual void RemovePlugin(nsIObjectLoadingContent* aPlugin) = 0;
   virtual void GetPlugins(nsTArray<nsIObjectLoadingContent*>& aPlugins) = 0;
+
+  virtual nsresult AddResponsiveContent(nsIContent* aContent) = 0;
+  virtual void RemoveResponsiveContent(nsIContent* aContent) = 0;
+  virtual void NotifyMediaFeatureValuesChanged() = 0;
 
   virtual nsresult GetStateObject(nsIVariant** aResult) = 0;
 
@@ -2599,8 +2635,8 @@ public:
   bool InlineScriptAllowedByCSP();
 
 private:
-  mutable uint64_t mDeprecationWarnedAbout;
-  mutable uint64_t mDocWarningWarnedAbout;
+  mutable std::bitset<eDeprecatedOperationCount> mDeprecationWarnedAbout;
+  mutable std::bitset<eDocumentWarningCount> mDocWarningWarnedAbout;
   SelectorCache mSelectorCache;
 
 protected:

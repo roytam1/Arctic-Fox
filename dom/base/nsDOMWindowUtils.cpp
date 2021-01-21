@@ -3129,6 +3129,18 @@ nsDOMWindowUtils::RemoteFrameFullscreenReverted()
   return NS_OK;
 }
 
+NS_IMETHODIMP
+nsDOMWindowUtils::HandleFullscreenRequests(bool* aRetVal)
+{
+  MOZ_RELEASE_ASSERT(nsContentUtils::IsCallerChrome());
+
+  nsCOMPtr<nsIDocument> doc = GetDocument();
+  NS_ENSURE_STATE(doc);
+
+  *aRetVal = nsIDocument::HandlePendingFullscreenRequests(doc);
+  return NS_OK;
+}
+
 nsresult
 nsDOMWindowUtils::ExitFullscreen()
 {
@@ -3431,16 +3443,14 @@ nsDOMWindowUtils::DispatchEventToChromeOnly(nsIDOMEventTarget* aTarget,
 }
 
 NS_IMETHODIMP
-nsDOMWindowUtils::RunInStableState(nsIRunnable *runnable)
+nsDOMWindowUtils::RunInStableState(nsIRunnable *aRunnable)
 {
   MOZ_RELEASE_ASSERT(nsContentUtils::IsCallerChrome());
 
-  nsCOMPtr<nsIAppShell> appShell(do_GetService(kAppShellCID));
-  if (!appShell) {
-    return NS_ERROR_NOT_AVAILABLE;
-  }
+  nsCOMPtr<nsIRunnable> runnable = aRunnable;
+  nsContentUtils::RunInStableState(runnable.forget());
 
-  return appShell->RunInStableState(runnable);
+  return NS_OK;
 }
 
 NS_IMETHODIMP
