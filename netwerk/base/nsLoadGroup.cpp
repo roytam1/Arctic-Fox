@@ -166,17 +166,6 @@ RescheduleRequest(nsIRequest *aRequest, int32_t delta)
         p->AdjustPriority(delta);
 }
 
-static PLDHashOperator
-RescheduleRequests(PLDHashTable *table, PLDHashEntryHdr *hdr,
-                   uint32_t number, void *arg)
-{
-    RequestMapEntry *e = static_cast<RequestMapEntry *>(hdr);
-    int32_t *delta = static_cast<int32_t *>(arg);
-
-    RescheduleRequest(e->mKey, *delta);
-    return PL_DHASH_NEXT;
-}
-
 nsLoadGroup::nsLoadGroup(nsISupports* outer)
     : mForegroundCount(0)
     , mLoadFlags(LOAD_NORMAL)
@@ -257,27 +246,28 @@ nsLoadGroup::GetStatus(nsresult *status)
     return NS_OK; 
 }
 
-// PLDHashTable enumeration callback that appends strong references to
-// all nsIRequest to an nsTArray<nsIRequest*>.
-static PLDHashOperator
-AppendRequestsToArray(PLDHashTable *table, PLDHashEntryHdr *hdr,
-                      uint32_t number, void *arg)
+static bool
+AppendRequestsToArray(PLDHashTable* aTable, nsTArray<nsIRequest*> *aArray)
 {
-    RequestMapEntry *e = static_cast<RequestMapEntry *>(hdr);
-    nsTArray<nsIRequest*> *array = static_cast<nsTArray<nsIRequest*> *>(arg);
+    for (auto iter = aTable->Iter(); !iter.Done(); iter.Next()) {
+        auto e = static_cast<RequestMapEntry*>(iter.Get());
+        nsIRequest *request = e->mKey;
+        NS_ASSERTION(request, "What? Null key in pldhash entry?");
 
-    nsIRequest *request = e->mKey;
-    NS_ASSERTION(request, "What? Null key in pldhash entry?");
-
-    bool ok = array->AppendElement(request) != nullptr;
-
-    if (!ok) {
-        return PL_DHASH_STOP;
+        bool ok = !!aArray->AppendElement(request);
+        if (!ok) {
+           break;
+        }
+        NS_ADDREF(request);
     }
 
-    NS_ADDREF(request);
-
-    return PL_DHASH_NEXT;
+    if (aArray->Length() != aTable->EntryCount()) {
+        for (uint32_t i = 0, len = aArray->Length(); i < len; ++i) {
+            NS_RELEASE((*aArray)[i]);
+        }
+        return false;
+    }
+    return true;
 }
 
 NS_IMETHODIMP
@@ -291,14 +281,7 @@ nsLoadGroup::Cancel(nsresult status)
 
     nsAutoTArray<nsIRequest*, 8> requests;
 
-    PL_DHashTableEnumerate(&mRequests, AppendRequestsToArray,
-                           static_cast<nsTArray<nsIRequest*> *>(&requests));
-
-    if (requests.Length() != count) {
-        for (uint32_t i = 0, len = requests.Length(); i < len; ++i) {
-            NS_RELEASE(requests[i]);
-        }
-
+    if (!AppendRequestsToArray(&mRequests, &requests)) {
         return NS_ERROR_OUT_OF_MEMORY;
     }
 
@@ -370,14 +353,7 @@ nsLoadGroup::Suspend()
 
     nsAutoTArray<nsIRequest*, 8> requests;
 
-    PL_DHashTableEnumerate(&mRequests, AppendRequestsToArray,
-                           static_cast<nsTArray<nsIRequest*> *>(&requests));
-
-    if (requests.Length() != count) {
-        for (uint32_t i = 0, len = requests.Length(); i < len; ++i) {
-            NS_RELEASE(requests[i]);
-        }
-
+    if (!AppendRequestsToArray(&mRequests, &requests)) {
         return NS_ERROR_OUT_OF_MEMORY;
     }
 
@@ -422,14 +398,7 @@ nsLoadGroup::Resume()
 
     nsAutoTArray<nsIRequest*, 8> requests;
 
-    PL_DHashTableEnumerate(&mRequests, AppendRequestsToArray,
-                           static_cast<nsTArray<nsIRequest*> *>(&requests));
-
-    if (requests.Length() != count) {
-        for (uint32_t i = 0, len = requests.Length(); i < len; ++i) {
-            NS_RELEASE(requests[i]);
-        }
-
+    if (!AppendRequestsToArray(&mRequests, &requests)) {
         return NS_ERROR_OUT_OF_MEMORY;
     }
 
@@ -734,24 +703,16 @@ nsLoadGroup::RemoveRequest(nsIRequest *request, nsISupports* ctxt,
     return rv;
 }
 
-// PLDHashTable enumeration callback that appends all items in the
-// hash to an nsCOMArray
-static PLDHashOperator
-AppendRequestsToCOMArray(PLDHashTable *table, PLDHashEntryHdr *hdr,
-                         uint32_t number, void *arg)
-{
-    RequestMapEntry *e = static_cast<RequestMapEntry *>(hdr);
-    static_cast<nsCOMArray<nsIRequest>*>(arg)->AppendObject(e->mKey);
-    return PL_DHASH_NEXT;
-}
-
 NS_IMETHODIMP
 nsLoadGroup::GetRequests(nsISimpleEnumerator * *aRequests)
 {
     nsCOMArray<nsIRequest> requests;
     requests.SetCapacity(mRequests.EntryCount());
 
-    PL_DHashTableEnumerate(&mRequests, AppendRequestsToCOMArray, &requests);
+    for (auto iter = mRequests.Iter(); !iter.Done(); iter.Next()) {
+      auto e = static_cast<RequestMapEntry*>(iter.Get());
+      requests.AppendObject(e->mKey);
+    }
 
     return NS_NewArrayEnumerator(aRequests, requests);
 }
@@ -885,7 +846,10 @@ nsLoadGroup::AdjustPriority(int32_t aDelta)
     // Update the priority for each request that supports nsISupportsPriority
     if (aDelta != 0) {
         mPriority += aDelta;
-        PL_DHashTableEnumerate(&mRequests, RescheduleRequests, &aDelta);
+        for (auto iter = mRequests.Iter(); !iter.Done(); iter.Next()) {
+          auto e = static_cast<RequestMapEntry*>(iter.Get());
+          RescheduleRequest(e->mKey, aDelta);
+        }
     }
     return NS_OK;
 }
