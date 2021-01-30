@@ -128,6 +128,7 @@ bool nsLayoutUtils::gPreventAssertInCompareTreePosition = false;
 #endif // DEBUG
 
 typedef FrameMetrics::ViewID ViewID;
+typedef nsStyleTransformMatrix::TransformReferenceBox TransformReferenceBox;
 
 /* static */ uint32_t nsLayoutUtils::sFontSizeInflationEmPerLine;
 /* static */ uint32_t nsLayoutUtils::sFontSizeInflationMinTwips;
@@ -139,6 +140,7 @@ typedef FrameMetrics::ViewID ViewID;
 /* static */ bool nsLayoutUtils::sInvalidationDebuggingIsEnabled;
 /* static */ bool nsLayoutUtils::sCSSVariablesEnabled;
 /* static */ bool nsLayoutUtils::sInterruptibleReflowEnabled;
+/* static */ bool nsLayoutUtils::sSVGTransformOriginEnabled;
 
 static ViewID sScrollIdCounter = FrameMetrics::START_SCROLL_ID;
 
@@ -462,12 +464,12 @@ GetScaleForValue(const StyleAnimationValue& aValue, nsIFrame* aFrame)
     return gfxSize();
   }
 
-  nsRect frameBounds = aFrame->GetRect();
   bool dontCare;
+  TransformReferenceBox refBox(aFrame);
   gfx3DMatrix transform = nsStyleTransformMatrix::ReadTransforms(
                             list->mHead,
                             aFrame->StyleContext(),
-                            aFrame->PresContext(), dontCare, frameBounds,
+                            aFrame->PresContext(), dontCare, refBox,
                             aFrame->PresContext()->AppUnitsPerDevPixel());
 
   gfxMatrix transform2d;
@@ -7141,6 +7143,8 @@ nsLayoutUtils::Initialize()
                                "layout.css.variables.enabled");
   Preferences::AddBoolVarCache(&sInterruptibleReflowEnabled,
                                "layout.interruptible-reflow.enabled");
+  Preferences::AddBoolVarCache(&sSVGTransformOriginEnabled,
+                               "svg.transform-origin.enabled");
 
   Preferences::RegisterCallback(GridEnabledPrefChangeCallback,
                                 GRID_ENABLED_PREF_NAME);
