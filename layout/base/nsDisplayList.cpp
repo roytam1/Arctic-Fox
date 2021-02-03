@@ -70,6 +70,7 @@
 #include "nsCaret.h"
 #include "nsISelection.h"
 #include "nsDOMTokenList.h"
+#include "mozilla/RuleNodeCacheConditions.h"
 
 // GetCurrentTime is defined in winbase.h as zero argument macro forwarding to
 // GetTickCount().
@@ -129,7 +130,7 @@ static void AddTransformFunctions(nsCSSValueList* aList,
     NS_ASSERTION(currElem.GetUnit() == eCSSUnit_Function,
                  "Stream should consist solely of functions!");
     nsCSSValue::Array* array = currElem.GetArrayValue();
-    bool canStoreInRuleTree = true;
+    RuleNodeCacheConditions conditions;
     switch (nsStyleTransformMatrix::TransformFunctionOf(array)) {
       case eCSSKeyword_rotatex:
       {
@@ -201,7 +202,7 @@ static void AddTransformFunctions(nsCSSValueList* aList,
       case eCSSKeyword_translatex:
       {
         double x = nsStyleTransformMatrix::ProcessTranslatePart(
-          array->Item(1), aContext, aPresContext, canStoreInRuleTree,
+          array->Item(1), aContext, aPresContext, conditions,
           &aRefBox, &TransformReferenceBox::Width);
         aFunctions.AppendElement(Translation(x, 0, 0));
         break;
@@ -209,7 +210,7 @@ static void AddTransformFunctions(nsCSSValueList* aList,
       case eCSSKeyword_translatey:
       {
         double y = nsStyleTransformMatrix::ProcessTranslatePart(
-          array->Item(1), aContext, aPresContext, canStoreInRuleTree,
+          array->Item(1), aContext, aPresContext, conditions,
           &aRefBox, &TransformReferenceBox::Height);
         aFunctions.AppendElement(Translation(0, y, 0));
         break;
@@ -217,7 +218,7 @@ static void AddTransformFunctions(nsCSSValueList* aList,
       case eCSSKeyword_translatez:
       {
         double z = nsStyleTransformMatrix::ProcessTranslatePart(
-          array->Item(1), aContext, aPresContext, canStoreInRuleTree,
+          array->Item(1), aContext, aPresContext, conditions,
           nullptr);
         aFunctions.AppendElement(Translation(0, 0, z));
         break;
@@ -225,13 +226,13 @@ static void AddTransformFunctions(nsCSSValueList* aList,
       case eCSSKeyword_translate:
       {
         double x = nsStyleTransformMatrix::ProcessTranslatePart(
-          array->Item(1), aContext, aPresContext, canStoreInRuleTree,
+          array->Item(1), aContext, aPresContext, conditions,
           &aRefBox, &TransformReferenceBox::Width);
         // translate(x) is shorthand for translate(x, 0)
         double y = 0;
         if (array->Count() == 3) {
            y = nsStyleTransformMatrix::ProcessTranslatePart(
-            array->Item(2), aContext, aPresContext, canStoreInRuleTree,
+            array->Item(2), aContext, aPresContext, conditions,
             &aRefBox, &TransformReferenceBox::Height);
         }
         aFunctions.AppendElement(Translation(x, y, 0));
@@ -240,13 +241,13 @@ static void AddTransformFunctions(nsCSSValueList* aList,
       case eCSSKeyword_translate3d:
       {
         double x = nsStyleTransformMatrix::ProcessTranslatePart(
-          array->Item(1), aContext, aPresContext, canStoreInRuleTree,
+          array->Item(1), aContext, aPresContext, conditions,
           &aRefBox, &TransformReferenceBox::Width);
         double y = nsStyleTransformMatrix::ProcessTranslatePart(
-          array->Item(2), aContext, aPresContext, canStoreInRuleTree,
+          array->Item(2), aContext, aPresContext, conditions,
           &aRefBox, &TransformReferenceBox::Height);
         double z = nsStyleTransformMatrix::ProcessTranslatePart(
-          array->Item(3), aContext, aPresContext, canStoreInRuleTree,
+          array->Item(3), aContext, aPresContext, conditions,
           nullptr);
 
         aFunctions.AppendElement(Translation(x, y, z));
@@ -325,7 +326,7 @@ static void AddTransformFunctions(nsCSSValueList* aList,
         nsStyleTransformMatrix::ProcessInterpolateMatrix(matrix, array,
                                                          aContext,
                                                          aPresContext,
-                                                         canStoreInRuleTree,
+                                                         conditions,
                                                          aRefBox);
         aFunctions.AppendElement(TransformMatrix(gfx::ToMatrix4x4(matrix)));
         break;
@@ -488,6 +489,13 @@ nsDisplayListBuilder::AddAnimationsAndTransitionsToLayer(Layer* aLayer,
              "should only be called in two configurations, with both "
              "aBuilder and aItem, or with neither");
   MOZ_ASSERT(!aItem || aFrame == aItem->Frame(), "frame mismatch");
+
+  // Only send animations to a layer that is actually using
+  // off-main-thread compositing.
+  if (aLayer->Manager()->GetBackendType() !=
+        layers::LayersBackend::LAYERS_CLIENT) {
+    return;
+  }
 
   bool pending = !aBuilder;
 
@@ -2969,19 +2977,36 @@ void
 nsDisplayBackgroundColor::Paint(nsDisplayListBuilder* aBuilder,
                                 nsRenderingContext* aCtx)
 {
-  DrawTarget& aDrawTarget = *aCtx->GetDrawTarget();
-
   if (mColor == NS_RGBA(0, 0, 0, 0)) {
     return;
   }
 
   nsRect borderBox = nsRect(ToReferenceFrame(), mFrame->GetSize());
 
+#if 0
+  // See https://bugzilla.mozilla.org/show_bug.cgi?id=1148418#c21 for why this
+  // results in a precision induced rounding issue that makes the rect one
+  // pixel shorter in rare cases. Disabled in favor of the old code for now.
+  // Note that the pref layout.css.devPixelsPerPx needs to be set to 1 to
+  // reproduce the bug.
+  DrawTarget& aDrawTarget = *aCtx->GetDrawTarget();
+
   Rect rect = NSRectToSnappedRect(borderBox,
                                   mFrame->PresContext()->AppUnitsPerDevPixel(),
                                   aDrawTarget);
   ColorPattern color(ToDeviceColor(mColor));
   aDrawTarget.FillRect(rect, color);
+#else
+  gfxContext* ctx = aCtx->ThebesContext();
+
+  gfxRect bounds =
+    nsLayoutUtils::RectToGfxRect(borderBox, mFrame->PresContext()->AppUnitsPerDevPixel());
+
+  ctx->SetColor(mColor);
+  ctx->NewPath();
+  ctx->Rectangle(bounds, true);
+  ctx->Fill();
+#endif
 }
 
 nsRegion
@@ -4904,7 +4929,7 @@ nsDisplayTransform::GetResultingTransformMatrixInternal(const FrameTransformProp
   }
 
   /* Get the matrix, then change its basis to factor in the origin. */
-  bool dummy;
+  RuleNodeCacheConditions dummy;
   gfx3DMatrix result;
   // Call IsSVGTransformed() regardless of the value of
   // disp->mSpecifiedTransform, since we still need any transformFromSVGParent.
