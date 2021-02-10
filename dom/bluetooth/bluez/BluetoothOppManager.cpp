@@ -185,7 +185,7 @@ public:
 
     if (mSocket->GetConnectionStatus() ==
         SocketConnectionStatus::SOCKET_CONNECTED) {
-      mSocket->Disconnect();
+      mSocket->Close();
     }
   }
 
@@ -269,12 +269,12 @@ BluetoothOppManager::ConnectInternal(const nsAString& aDeviceAddress)
 
   // Stop listening because currently we only support one connection at a time.
   if (mRfcommSocket) {
-    mRfcommSocket->Disconnect();
+    mRfcommSocket->Close();
     mRfcommSocket = nullptr;
   }
 
   if (mL2capSocket) {
-    mL2capSocket->Disconnect();
+    mL2capSocket->Close();
     mL2capSocket = nullptr;
   }
 
@@ -340,7 +340,7 @@ BluetoothOppManager::Listen()
                               kObexObjectPush,
                               BluetoothReservedChannels::CHANNEL_OPUSH_L2CAP)) {
       BT_WARNING("[OPP] Can't listen on L2CAP socket!");
-      mRfcommSocket->Disconnect();
+      mRfcommSocket->Close();
       mRfcommSocket = nullptr;
       mL2capSocket = nullptr;
       return false;
@@ -715,10 +715,8 @@ BluetoothOppManager::ExtractPacketHeaders(const ObexHeaderSet& aHeader)
   if (aHeader.Has(ObexHeaderId::Body) ||
       aHeader.Has(ObexHeaderId::EndOfBody)) {
     uint8_t* bodyPtr;
-    aHeader.GetBody(&bodyPtr);
+    aHeader.GetBody(&bodyPtr, &mBodySegmentLength);
     mBodySegment = bodyPtr;
-
-    aHeader.GetBodyLength(&mBodySegmentLength);
   }
 }
 
@@ -1171,10 +1169,13 @@ BluetoothOppManager::SendPutHeaderRequest(const nsAString& aFileName,
 
   int index = 3;
   index += AppendHeaderName(&req[index], mRemoteMaxPacketLength - index,
-                            (char*)fileName, (len + 1) * 2);
+                            fileName, (len + 1) * 2);
   index += AppendHeaderLength(&req[index], aFileSize);
 
-  SendObexData(req, ObexRequestCode::Put, index);
+  // This is final put packet if file size equals to 0
+  uint8_t opcode = (aFileSize > 0) ? ObexRequestCode::Put
+                                   : ObexRequestCode::PutFinal;
+  SendObexData(req, opcode, index);
 
   delete [] fileName;
   delete [] req;
@@ -1511,13 +1512,13 @@ BluetoothOppManager::OnSocketConnectSuccess(BluetoothSocket* aSocket)
     MOZ_ASSERT(!mSocket);
     mRfcommSocket.swap(mSocket);
 
-    mL2capSocket->Disconnect();
+    mL2capSocket->Close();
     mL2capSocket = nullptr;
   } else if (aSocket == mL2capSocket) {
     MOZ_ASSERT(!mSocket);
     mL2capSocket.swap(mSocket);
 
-    mRfcommSocket->Disconnect();
+    mRfcommSocket->Close();
     mRfcommSocket = nullptr;
   }
 
@@ -1596,7 +1597,7 @@ void
 BluetoothOppManager::Disconnect(BluetoothProfileController* aController)
 {
   if (mSocket) {
-    mSocket->Disconnect();
+    mSocket->Close();
   } else {
     BT_WARNING("%s: No ongoing file transfer to stop", __FUNCTION__);
   }

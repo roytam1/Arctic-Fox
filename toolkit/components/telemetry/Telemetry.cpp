@@ -81,8 +81,8 @@ using base::Histogram;
 using base::LinearHistogram;
 using base::StatisticsRecorder;
 
-const char KEYED_HISTOGRAM_NAME_SEPARATOR[] = "#";
-const char SUBSESSION_HISTOGRAM_PREFIX[] = "sub#";
+#define KEYED_HISTOGRAM_NAME_SEPARATOR "#"
+#define SUBSESSION_HISTOGRAM_PREFIX "sub#"
 
 enum reflectStatus {
   REFLECT_OK,
@@ -771,7 +771,7 @@ class KeyedHistogram {
 public:
   KeyedHistogram(const nsACString &name, const nsACString &expiration,
                  uint32_t histogramType, uint32_t min, uint32_t max,
-                 uint32_t bucketCount);
+                 uint32_t bucketCount, uint32_t dataset);
   nsresult GetHistogram(const nsCString& name, Histogram** histogram, bool subsession);
   Histogram* GetHistogram(const nsCString& name, bool subsession);
   uint32_t GetHistogramType() const { return mHistogramType; }
@@ -807,6 +807,7 @@ private:
   const uint32_t mMin;
   const uint32_t mMax;
   const uint32_t mBucketCount;
+  const uint32_t mDataset;
 };
 
 // Hardcoded probes
@@ -856,23 +857,42 @@ IsExpired(const Histogram *histogram){
 bool
 IsValidHistogramName(const nsACString& name)
 {
-  return !FindInReadable(nsCString(KEYED_HISTOGRAM_NAME_SEPARATOR), name);
+  return !FindInReadable(NS_LITERAL_CSTRING(KEYED_HISTOGRAM_NAME_SEPARATOR), name);
 }
 
 bool
-IsInDataset(const TelemetryHistogram& h, uint32_t dataset)
+IsInDataset(uint32_t dataset, uint32_t containingDataset)
 {
-  if (h.dataset == dataset) {
+  if (dataset == containingDataset) {
     return true;
   }
 
   // The "optin on release channel" dataset is a superset of the
   // "optout on release channel one".
-  if (dataset == nsITelemetry::DATASET_RELEASE_CHANNEL_OPTIN
-      && h.dataset == nsITelemetry::DATASET_RELEASE_CHANNEL_OPTOUT) {
+  if (containingDataset == nsITelemetry::DATASET_RELEASE_CHANNEL_OPTIN
+      && dataset == nsITelemetry::DATASET_RELEASE_CHANNEL_OPTOUT) {
     return true;
   }
 
+  return false;
+}
+
+bool
+CanRecordDataset(uint32_t dataset)
+{
+  // If we are extended telemetry is enabled, we are allowed to record regardless of
+  // the dataset.
+  if (TelemetryImpl::CanRecordExtended()) {
+    return true;
+  }
+
+  // If base telemetry data is enabled and we're trying to record base telemetry, allow it.
+  if (TelemetryImpl::CanRecordBase() &&
+      IsInDataset(dataset, nsITelemetry::DATASET_RELEASE_CHANNEL_OPTOUT)) {
+      return true;
+  }
+
+  // We're not recording extended telemetry or this is not the base dataset. Bail out.
   return false;
 }
 
@@ -1063,14 +1083,44 @@ GetSubsessionHistogram(Histogram& existing)
 }
 
 nsresult
-HistogramAdd(Histogram& histogram, int32_t value)
+HistogramAdd(Histogram& histogram, int32_t value, uint32_t dataset)
 {
-  histogram.Add(value);
+  // Check if we are allowed to record the data.
+  if (!CanRecordDataset(dataset)) {
+    return NS_OK;
+  }
+
+#if !defined(MOZ_WIDGET_GONK) && !defined(MOZ_WIDGET_ANDROID)
   if (Histogram* subsession = GetSubsessionHistogram(histogram)) {
     subsession->Add(value);
   }
+#endif
+
+  // It is safe to add to the histogram now: the subsession histogram was already
+  // cloned from this so we won't add the sample twice.
+  histogram.Add(value);
 
   return NS_OK;
+}
+
+nsresult
+HistogramAdd(Histogram& histogram, int32_t value)
+{
+  uint32_t dataset = nsITelemetry::DATASET_RELEASE_CHANNEL_OPTIN;
+  // We only really care about the dataset of the histogram if we are not recording
+  // extended telemetry. Otherwise, we always record histogram data.
+  if (!TelemetryImpl::CanRecordExtended()) {
+    Telemetry::ID id;
+    nsresult rv = TelemetryImpl::GetHistogramEnumId(histogram.histogram_name().c_str(), &id);
+    if (NS_FAILED(rv)) {
+      // If we can't look up the dataset, it might be because the histogram was added
+      // at runtime. Since we're not recording extended telemetry, bail out.
+      return NS_OK;
+    }
+    dataset = gHistograms[id].dataset;
+  }
+
+  return HistogramAdd(histogram, value, dataset);
 }
 
 bool
@@ -1192,7 +1242,7 @@ JSHistogram_Add(JSContext *cx, unsigned argc, JS::Value *vp)
     }
   }
 
-  if (TelemetryImpl::CanRecordExtended()) {
+  if (TelemetryImpl::CanRecordBase()) {
     HistogramAdd(*h, value);
   }
 
@@ -1823,7 +1873,7 @@ mFailedLockCount(0)
     const nsDependentCString id(h.id());
     const nsDependentCString expiration(h.expiration());
     mKeyedHistograms.Put(id, new KeyedHistogram(id, expiration, h.histogramType,
-                                                    h.min, h.max, h.bucketCount));
+                                                h.min, h.max, h.bucketCount, h.dataset));
   }
 }
 
@@ -1870,7 +1920,8 @@ TelemetryImpl::NewKeyedHistogram(const nsACString &name, const nsACString &expir
   }
 
   KeyedHistogram* keyed = new KeyedHistogram(name, expiration, histogramType,
-                                             min, max, bucketCount);
+                                             min, max, bucketCount,
+                                             nsITelemetry::DATASET_RELEASE_CHANNEL_OPTIN);
   if (MOZ_UNLIKELY(!mKeyedHistograms.Put(name, keyed, fallible))) {
     delete keyed;
     return NS_ERROR_OUT_OF_MEMORY;
@@ -2824,7 +2875,7 @@ GetRegisteredHistogramIds(bool keyed, uint32_t dataset, uint32_t *aCount,
   for (size_t i = 0; i < ArrayLength(gHistograms); ++i) {
     const TelemetryHistogram& h = gHistograms[i];
     if (IsExpired(h.expiration()) || h.keyed != keyed ||
-        !IsInDataset(h, dataset)) {
+        !IsInDataset(h.dataset, dataset)) {
       continue;
     }
 
@@ -3302,6 +3353,14 @@ RecordShutdownEndTimeStamp() {
   gRecordedShutdownTimeFileName = nullptr;
   gAlreadyFreedShutdownTimeFileName = true;
 
+  if (gRecordedShutdownStartTime.IsNull()) {
+    // If |CanRecordExtended()| is true before |AsyncFetchTelemetryData| is called and
+    // then disabled before shutdown, |RecordShutdownStartTimeStamp| will bail out and
+    // we will end up with a null |gRecordedShutdownStartTime| here. This can happen
+    // during tests.
+    return;
+  }
+
   nsCString tmpName = name;
   tmpName += ".tmp";
   FILE *f = fopen(tmpName.get(), "w");
@@ -3335,13 +3394,14 @@ Accumulate(ID aHistogram, uint32_t aSample)
 {
 return;
 /*
-  if (!TelemetryImpl::CanRecordExtended()) {
+  if (!TelemetryImpl::CanRecordBase()) {
     return;
   }
   Histogram *h;
   nsresult rv = GetHistogramByEnumId(aHistogram, &h);
-  if (NS_SUCCEEDED(rv))
-    HistogramAdd(*h, aSample);
+  if (NS_SUCCEEDED(rv)) {
+    HistogramAdd(*h, aSample, gHistograms[aHistogram].dataset);
+  }
 */
 }
 
@@ -3350,10 +3410,9 @@ Accumulate(ID aID, const nsCString& aKey, uint32_t aSample)
 {
 return;
 /*
-  if (!TelemetryImpl::CanRecordExtended()) {
+  if (!TelemetryImpl::CanRecordBase()) {
     return;
   }
-
   const TelemetryHistogram& th = gHistograms[aID];
   KeyedHistogram* keyed = TelemetryImpl::GetKeyedHistogramById(nsDependentCString(th.id()));
   MOZ_ASSERT(keyed);
@@ -3379,7 +3438,7 @@ return;
   Histogram *h;
   rv = GetHistogramByEnumId(id, &h);
   if (NS_SUCCEEDED(rv)) {
-    HistogramAdd(*h, sample);
+    HistogramAdd(*h, sample, gHistograms[id].dataset);
   }
 */
 }
@@ -3645,7 +3704,7 @@ XRE_TelemetryAccumulate(int aID, uint32_t aSample)
 
 KeyedHistogram::KeyedHistogram(const nsACString &name, const nsACString &expiration,
                                uint32_t histogramType, uint32_t min, uint32_t max,
-                               uint32_t bucketCount)
+                               uint32_t bucketCount, uint32_t dataset)
   : mHistogramMap()
   , mSubsessionMap()
   , mName(name)
@@ -3654,6 +3713,7 @@ KeyedHistogram::KeyedHistogram(const nsACString &name, const nsACString &expirat
   , mMin(min)
   , mMax(max)
   , mBucketCount(bucketCount)
+  , mDataset(dataset)
 {
 }
 
@@ -3669,11 +3729,13 @@ KeyedHistogram::GetHistogram(const nsCString& key, Histogram** histogram,
   }
 
   nsCString histogramName;
+#if !defined(MOZ_WIDGET_GONK) && !defined(MOZ_WIDGET_ANDROID)
   if (subsession) {
-    histogramName.Append(SUBSESSION_HISTOGRAM_PREFIX);
+    histogramName.AppendLiteral(SUBSESSION_HISTOGRAM_PREFIX);
   }
+#endif
   histogramName.Append(mName);
-  histogramName.Append(KEYED_HISTOGRAM_NAME_SEPARATOR);
+  histogramName.AppendLiteral(KEYED_HISTOGRAM_NAME_SEPARATOR);
   histogramName.Append(key);
 
   Histogram* h;
@@ -3711,14 +3773,7 @@ nsresult
 KeyedHistogram::GetDataset(uint32_t* dataset) const
 {
   MOZ_ASSERT(dataset);
-
-  Telemetry::ID id;
-  nsresult rv = TelemetryImpl::GetHistogramEnumId(mName.get(), &id);
-  if (NS_FAILED(rv)) {
-    return rv;
-  }
-
-  *dataset = gHistograms[id].dataset;
+  *dataset = mDataset;
   return NS_OK;
 }
 
@@ -3733,7 +3788,7 @@ KeyedHistogram::ClearHistogramEnumerator(KeyedHistogramEntry* entry, void*)
 nsresult
 KeyedHistogram::Add(const nsCString& key, uint32_t sample)
 {
-  if (!TelemetryImpl::CanRecordExtended()) {
+  if (!CanRecordDataset(mDataset)) {
     return NS_OK;
   }
 
