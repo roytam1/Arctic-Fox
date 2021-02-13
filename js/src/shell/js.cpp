@@ -2250,7 +2250,7 @@ Intern(JSContext* cx, unsigned argc, jsval* vp)
 
     mozilla::Range<const char16_t> chars = strChars.twoByteRange();
 
-    if (!JS_InternUCStringN(cx, chars.start().get(), chars.length()))
+    if (!JS_AtomizeAndPinUCStringN(cx, chars.start().get(), chars.length()))
         return false;
 
     args.rval().setUndefined();
@@ -4130,7 +4130,8 @@ class ShellAutoEntryMonitor : JS::dbg::AutoEntryMonitor {
         MOZ_ASSERT(!enteredWithoutExit);
     }
 
-    void Entry(JSContext* cx, JSFunction* function) override {
+    void Entry(JSContext* cx, JSFunction* function, JS::HandleValue asyncStack,
+               JS::HandleString asyncCause) override {
         MOZ_ASSERT(!enteredWithoutExit);
         enteredWithoutExit = true;
 
@@ -4144,7 +4145,8 @@ class ShellAutoEntryMonitor : JS::dbg::AutoEntryMonitor {
         oom = !log.append(make_string_copy("anonymous"));
     }
 
-    void Entry(JSContext* cx, JSScript* script) override {
+    void Entry(JSContext* cx, JSScript* script, JS::HandleValue asyncStack,
+               JS::HandleString asyncCause) override {
         MOZ_ASSERT(!enteredWithoutExit);
         enteredWithoutExit = true;
 
