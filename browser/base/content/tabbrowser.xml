@@ -205,8 +205,7 @@
           if (!window.gShowPageResizers)
             return;
 
-          var show = document.getElementById("addon-bar").collapsed &&
-                     window.windowState == window.STATE_NORMAL;
+          var show = window.windowState == window.STATE_NORMAL;
           for (let i = 0; i < this.browsers.length; i++) {
             this.browsers[i].showWindowResizer = show;
           }
@@ -4046,8 +4045,8 @@
       <!-- Deprecated stuff, implemented for backwards compatibility. -->
       <method name="enterTabbedMode">
         <body>
-          Application.console.log("enterTabbedMode is an obsolete method and " +
-                                  "will be removed in a future release.");
+          Services.console.logStringMessage("enterTabbedMode is an obsolete method and " +
+                                            "will be removed in a future release.");
         </body>
       </method>
       <field name="mTabbedMode" readonly="true">true</field>
