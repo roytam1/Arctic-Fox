@@ -82,10 +82,9 @@ FontFaceSet::FontFaceSet(nsPIDOMWindow* aWindow, nsPresContext* aPresContext)
   , mDocument(aPresContext->Document())
   , mStatus(FontFaceSetLoadStatus::Loaded)
   , mNonRuleFacesDirty(false)
-  , mReadyIsResolved(true)
-  , mDispatchedLoadingEvent(false)
   , mHasLoadingFontFaces(false)
   , mHasLoadingFontFacesIsDirty(false)
+  , mDelayedLoadCheck(false)
 {
   MOZ_COUNT_CTOR(FontFaceSet);
 
@@ -109,6 +108,8 @@ FontFaceSet::FontFaceSet(nsPIDOMWindow* aWindow, nsPresContext* aPresContext)
   }
 
   mDocument->CSSLoader()->AddObserver(this);
+
+  mUserFontSet = new UserFontSet(this);
 }
 
 FontFaceSet::~FontFaceSet()
@@ -146,16 +147,6 @@ FontFaceSet::RemoveDOMContentLoadedListener()
     mDocument->RemoveSystemEventListener(NS_LITERAL_STRING("DOMContentLoaded"),
                                          this, false);
   }
-}
-
-FontFaceSet::UserFontSet*
-FontFaceSet::EnsureUserFontSet(nsPresContext* aPresContext)
-{
-  if (!mUserFontSet) {
-    mUserFontSet = new UserFontSet(this);
-    mPresContext = aPresContext;
-  }
-  return mUserFontSet;
 }
 
 already_AddRefed<Promise>
@@ -1377,7 +1368,19 @@ FontFaceSet::OnFontFaceStatusChanged(FontFace* aFontFace)
   } else {
     MOZ_ASSERT(aFontFace->Status() == FontFaceLoadStatus::Loaded ||
                aFontFace->Status() == FontFaceLoadStatus::Error);
-    CheckLoadingFinished();
+    // When a font finishes downloading, nsPresContext::UserFontSetUpdated
+    // will be called immediately afterwards to request a reflow of the
+    // relevant elements in the document.  We want to wait until the reflow
+    // request has been done before the FontFaceSet is marked as Loaded so
+    // that we don't briefly set the FontFaceSet to Loaded and then Loading
+    // again once the reflow is pending.  So we go around the event loop
+    // and call CheckLoadingFinished() after the reflow has been queued.
+    if (!mDelayedLoadCheck) {
+      mDelayedLoadCheck = true;
+      nsCOMPtr<nsIRunnable> checkTask =
+        NS_NewRunnableMethod(this, &FontFaceSet::CheckLoadingFinishedAfterDelay);
+      NS_DispatchToMainThread(checkTask);
+    }
   }
 }
 
@@ -1388,16 +1391,30 @@ FontFaceSet::DidRefresh()
 }
 
 void
+FontFaceSet::CheckLoadingFinishedAfterDelay()
+{
+  mDelayedLoadCheck = false;
+  CheckLoadingFinished();
+}
+
+void
 FontFaceSet::CheckLoadingStarted()
 {
-  if (HasLoadingFontFaces() && !mDispatchedLoadingEvent) {
-    mStatus = FontFaceSetLoadStatus::Loading;
-    mDispatchedLoadingEvent = true;
-    (new AsyncEventDispatcher(this, NS_LITERAL_STRING("loading"),
-                              false))->PostDOMEvent();
+  if (!HasLoadingFontFaces()) {
+    return;
   }
 
-  if (mReadyIsResolved && PrefEnabled()) {
+  if (mStatus == FontFaceSetLoadStatus::Loading) {
+    // We have already dispatched a loading event and replaced mReady
+    // with a fresh, unresolved promise.
+    return;
+  }
+
+  mStatus = FontFaceSetLoadStatus::Loading;
+  (new AsyncEventDispatcher(this, NS_LITERAL_STRING("loading"),
+                            false))->PostDOMEvent();
+
+  if (PrefEnabled()) {
     nsRefPtr<Promise> ready;
     if (GetParentObject()) {
       ErrorResult rv;
@@ -1406,7 +1423,6 @@ FontFaceSet::CheckLoadingStarted()
 
     if (ready) {
       mReady.swap(ready);
-      mReadyIsResolved = false;
     }
   }
 }
@@ -1473,7 +1489,12 @@ FontFaceSet::MightHavePendingFontLoads()
 void
 FontFaceSet::CheckLoadingFinished()
 {
-  if (mReadyIsResolved) {
+  if (mDelayedLoadCheck) {
+    // Wait until the runnable posted in OnFontFaceStatusChanged calls us.
+    return;
+  }
+
+  if (mStatus == FontFaceSetLoadStatus::Loaded) {
     // We've already resolved mReady and dispatched the loadingdone/loadingerror
     // events.
     return;
@@ -1485,10 +1506,8 @@ FontFaceSet::CheckLoadingFinished()
   }
 
   mStatus = FontFaceSetLoadStatus::Loaded;
-  mDispatchedLoadingEvent = false;
   if (mReady) {
     mReady->MaybeResolve(this);
-    mReadyIsResolved = true;
   }
 
   // Now dispatch the loadingdone/loadingerror events.
