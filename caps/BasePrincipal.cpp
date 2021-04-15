@@ -28,7 +28,7 @@ OriginAttributes::CreateSuffix(nsACString& aStr) const
 {
   MOZ_RELEASE_ASSERT(mAppId != nsIScriptSecurityManager::UNKNOWN_APP_ID);
 
-  nsRefPtr<URLSearchParams> usp = new URLSearchParams();
+  nsRefPtr<URLSearchParams> usp = new URLSearchParams(nullptr);
   nsAutoString value;
 
   if (mAppId != nsIScriptSecurityManager::NO_APP_ID) {
@@ -108,8 +108,8 @@ OriginAttributes::PopulateFromSuffix(const nsACString& aStr)
     return false;
   }
 
-  nsRefPtr<URLSearchParams> usp = new URLSearchParams();
-  usp->ParseInput(Substring(aStr, 1, aStr.Length() - 1), nullptr);
+  nsRefPtr<URLSearchParams> usp = new URLSearchParams(nullptr);
+  usp->ParseInput(Substring(aStr, 1, aStr.Length() - 1));
 
   PopulateFromSuffixIterator iterator(this);
   return usp->ForEach(iterator);
@@ -141,14 +141,14 @@ BasePrincipal::GetOriginNoSuffix(nsACString& aOrigin)
 bool
 BasePrincipal::Subsumes(nsIPrincipal* aOther, DocumentDomainConsideration aConsideration)
 {
-  MOZ_RELEASE_ASSERT(aOther, "The caller is performing a nonsensical security check!");
+  MOZ_ASSERT(aOther);
   return SubsumesInternal(aOther, aConsideration);
 }
 
 NS_IMETHODIMP
 BasePrincipal::Equals(nsIPrincipal *aOther, bool *aResult)
 {
-
+  NS_ENSURE_TRUE(aOther, NS_ERROR_INVALID_ARG);
   *aResult = Subsumes(aOther, DontConsiderDocumentDomain) &&
              Cast(aOther)->Subsumes(this, DontConsiderDocumentDomain);
   return NS_OK;
@@ -157,6 +157,7 @@ BasePrincipal::Equals(nsIPrincipal *aOther, bool *aResult)
 NS_IMETHODIMP
 BasePrincipal::EqualsConsideringDomain(nsIPrincipal *aOther, bool *aResult)
 {
+  NS_ENSURE_TRUE(aOther, NS_ERROR_INVALID_ARG);
   *aResult = Subsumes(aOther, ConsiderDocumentDomain) &&
              Cast(aOther)->Subsumes(this, ConsiderDocumentDomain);
   return NS_OK;
@@ -165,6 +166,7 @@ BasePrincipal::EqualsConsideringDomain(nsIPrincipal *aOther, bool *aResult)
 NS_IMETHODIMP
 BasePrincipal::Subsumes(nsIPrincipal *aOther, bool *aResult)
 {
+  NS_ENSURE_TRUE(aOther, NS_ERROR_INVALID_ARG);
   *aResult = Subsumes(aOther, DontConsiderDocumentDomain);
   return NS_OK;
 }
@@ -172,6 +174,7 @@ BasePrincipal::Subsumes(nsIPrincipal *aOther, bool *aResult)
 NS_IMETHODIMP
 BasePrincipal::SubsumesConsideringDomain(nsIPrincipal *aOther, bool *aResult)
 {
+  NS_ENSURE_TRUE(aOther, NS_ERROR_INVALID_ARG);
   *aResult = Subsumes(aOther, ConsiderDocumentDomain);
   return NS_OK;
 }
@@ -319,31 +322,6 @@ BasePrincipal::CreateCodebasePrincipal(nsIURI* aURI, OriginAttributes& aAttrs)
   rv = codebase->Init(aURI, aAttrs);
   NS_ENSURE_SUCCESS(rv, nullptr);
   return codebase.forget();
-}
-
-/* static */ bool
-BasePrincipal::IsCodebasePrincipal(nsIPrincipal* aPrincipal)
-{
-  MOZ_ASSERT(aPrincipal);
-
-  bool isNullPrincipal = true;
-  nsresult rv = aPrincipal->GetIsNullPrincipal(&isNullPrincipal);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return false;
-  }
-
-  if (isNullPrincipal || nsContentUtils::IsSystemPrincipal(aPrincipal)) {
-    return false;
-  }
-
-  // No expanded principals.
-  nsCOMPtr<nsIExpandedPrincipal> expandedPrincipal =
-    do_QueryInterface(aPrincipal);
-  if (expandedPrincipal) {
-    return false;
-  }
-
-  return true;
 }
 
 } // namespace mozilla
