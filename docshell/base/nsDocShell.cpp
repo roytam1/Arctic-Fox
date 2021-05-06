@@ -951,7 +951,7 @@ nsDocShell::nsDocShell()
 
 nsDocShell::~nsDocShell()
 {
-  MOZ_ASSERT(!mProfileTimelineRecording);
+  MOZ_ASSERT(!IsObserved());
 
   // Avoid notifying observers while we're in the dtor.
   mIsBeingDestroyed = true;
@@ -2937,6 +2937,8 @@ nsDocShell::HistoryTransactionRemoved(int32_t aIndex)
 
 unsigned long nsDocShell::gProfileTimelineRecordingsCount = 0;
 
+mozilla::LinkedList<nsDocShell::ObservedDocShell>* nsDocShell::gObservedDocShells = nullptr;
+
 NS_IMETHODIMP
 nsDocShell::SetRecordProfileTimelineMarkers(bool aValue)
 {
@@ -2945,11 +2947,16 @@ nsDocShell::SetRecordProfileTimelineMarkers(bool aValue)
     if (aValue) {
       ++gProfileTimelineRecordingsCount;
       UseEntryScriptProfiling();
-      mProfileTimelineRecording = true;
+
+      MOZ_ASSERT(!mObserved);
+      mObserved.reset(new ObservedDocShell(this));
+      GetOrCreateObservedDocShells().insertFront(mObserved.get());
     } else {
       --gProfileTimelineRecordingsCount;
       UnuseEntryScriptProfiling();
-      mProfileTimelineRecording = false;
+
+      mObserved.reset(nullptr);
+
       ClearProfileTimelineMarkers();
     }
   }
@@ -2960,7 +2967,7 @@ nsDocShell::SetRecordProfileTimelineMarkers(bool aValue)
 NS_IMETHODIMP
 nsDocShell::GetRecordProfileTimelineMarkers(bool* aValue)
 {
-  *aValue = mProfileTimelineRecording;
+  *aValue = IsObserved();
   return NS_OK;
 }
 
@@ -2984,10 +2991,10 @@ nsDocShell::PopProfileTimelineMarkers(
   // If we see an unpaired START, we keep it around for the next call
   // to PopProfileTimelineMarkers.  We store the kept START objects in
   // this array.
-  nsTArray<TimelineMarker*> keptMarkers;
+  nsTArray<UniquePtr<TimelineMarker>> keptMarkers;
 
   for (uint32_t i = 0; i < mProfileTimelineMarkers.Length(); ++i) {
-    TimelineMarker* startPayload = mProfileTimelineMarkers[i];
+    UniquePtr<TimelineMarker>& startPayload = mProfileTimelineMarkers[i];
     const char* startMarkerName = startPayload->GetName();
 
     bool hasSeenPaintedLayer = false;
@@ -3007,6 +3014,7 @@ nsDocShell::PopProfileTimelineMarkers(
       marker->mName = NS_ConvertUTF8toUTF16(startPayload->GetName());
       marker->mStart = startPayload->GetTime();
       marker->mEnd = startPayload->GetTime();
+      marker->mStack = startPayload->GetStack();
       startPayload->AddDetails(aCx, *marker);
       continue;
     }
@@ -3023,7 +3031,7 @@ nsDocShell::PopProfileTimelineMarkers(
       // enough for the amount of markers to always be small enough that the
       // nested for loop isn't going to be a performance problem.
       for (uint32_t j = i + 1; j < mProfileTimelineMarkers.Length(); ++j) {
-        TimelineMarker* endPayload = mProfileTimelineMarkers[j];
+        UniquePtr<TimelineMarker>& endPayload = mProfileTimelineMarkers[j];
         const char* endMarkerName = endPayload->GetName();
 
         // Look for Layer markers to stream out paint markers.
@@ -3032,7 +3040,7 @@ nsDocShell::PopProfileTimelineMarkers(
           endPayload->AddLayerRectangles(layerRectangles);
         }
 
-        if (!startPayload->Equals(endPayload)) {
+        if (!startPayload->Equals(*endPayload)) {
           continue;
         }
 
@@ -3069,14 +3077,13 @@ nsDocShell::PopProfileTimelineMarkers(
 
       // If we did not see the corresponding END, keep the START.
       if (!hasSeenEnd) {
-        keptMarkers.AppendElement(mProfileTimelineMarkers[i]);
+        keptMarkers.AppendElement(Move(mProfileTimelineMarkers[i]));
         mProfileTimelineMarkers.RemoveElementAt(i);
         --i;
       }
     }
   }
 
-  ClearProfileTimelineMarkers();
   mProfileTimelineMarkers.SwapElements(keptMarkers);
 
   if (!ToJSValue(aCx, profileTimelineMarkers, aProfileTimelineMarkers)) {
@@ -3100,7 +3107,7 @@ void
 nsDocShell::AddProfileTimelineMarker(const char* aName,
                                      TracingMetadata aMetaData)
 {
-  if (mProfileTimelineRecording) {
+  if (IsObserved()) {
     TimelineMarker* marker = new TimelineMarker(this, aName, aMetaData);
     mProfileTimelineMarkers.AppendElement(marker);
   }
@@ -3109,8 +3116,8 @@ nsDocShell::AddProfileTimelineMarker(const char* aName,
 void
 nsDocShell::AddProfileTimelineMarker(UniquePtr<TimelineMarker>&& aMarker)
 {
-  if (mProfileTimelineRecording) {
-    mProfileTimelineMarkers.AppendElement(aMarker.release());
+  if (IsObserved()) {
+    mProfileTimelineMarkers.AppendElement(Move(aMarker));
   }
 }
 
@@ -3146,9 +3153,6 @@ nsDocShell::GetWindowDraggingAllowed(bool* aValue)
 void
 nsDocShell::ClearProfileTimelineMarkers()
 {
-  for (uint32_t i = 0; i < mProfileTimelineMarkers.Length(); ++i) {
-    delete mProfileTimelineMarkers[i];
-  }
   mProfileTimelineMarkers.Clear();
 }
 
@@ -9628,33 +9632,7 @@ nsDocShell::CreatePrincipalFromReferrer(nsIURI* aReferrer,
   NS_ENSURE_SUCCESS(rv, rv);
   return NS_OK;
 }
-/* XXX
-NS_IMETHODIMP
-nsDocShell::InternalLoad(nsIURI* aURI,
-                         nsIURI* aReferrer,
-                         uint32_t aReferrerPolicy,
-                         nsISupports* aOwner,
-                         uint32_t aFlags,
-                         const char16_t* aWindowTarget,
-                         const char* aTypeHint,
-                         const nsAString& aFileName,
-                         nsIInputStream* aPostData,
-                         nsIInputStream* aHeadersData,
-                         uint32_t aLoadType,
-                         nsISHEntry* aSHEntry,
-                         bool aFirstParty,
-                         const nsAString& aSrcdoc,
-                         nsIDocShell* aSourceDocShell,
-                         nsIURI* aBaseURI,
-                         nsIDocShell** aDocShell,
-                         nsIRequest** aRequest)
-{
-  return InternalLoad2(aURI, nullptr, false, false, aReferrer, aReferrerPolicy, aOwner,
-                       aFlags, aWindowTarget, aTypeHint, aFileName, aPostData,
-                       aHeadersData, aLoadType, aSHEntry, aFirstParty, aSrcdoc,
-                       aSourceDocShell, aBaseURI, aDocShell, aRequest);
-}
-*/
+
 NS_IMETHODIMP
 nsDocShell::InternalLoad(nsIURI* aURI,
                          nsIURI* aOriginalURI,
@@ -10164,6 +10142,11 @@ nsDocShell::InternalLoad(nsIURI* aURI,
        */
       SetHistoryEntry(&mLSHE, aSHEntry);
 
+      // Set the doc's URI according to the new history entry's URI.
+      nsCOMPtr<nsIDocument> doc = GetDocument();
+      NS_ENSURE_TRUE(doc, NS_ERROR_FAILURE);
+      doc->SetDocumentURI(aURI);
+
       /* This is a anchor traversal with in the same page.
        * call OnNewURI() so that, this traversal will be
        * recorded in session and global history.
@@ -10254,12 +10237,11 @@ nsDocShell::InternalLoad(nsIURI* aURI,
         }
       }
 
-      // Set the doc's URI according to the new history entry's URI.
-      nsCOMPtr<nsIDocument> doc = GetDocument();
-      NS_ENSURE_TRUE(doc, NS_ERROR_FAILURE);
-      doc->SetDocumentURI(aURI);
-
       SetDocCurrentStateObj(mOSHE);
+
+      // Inform the favicon service that the favicon for oldURI also
+      // applies to aURI.
+      CopyFavicon(currentURI, aURI, mInPrivateBrowsing);
 
       nsRefPtr<nsGlobalWindow> win = mScriptGlobal ?
         mScriptGlobal->GetCurrentInnerWindowInternal() : nullptr;
@@ -10301,10 +10283,6 @@ nsDocShell::InternalLoad(nsIURI* aURI,
           win->DispatchAsyncHashchange(currentURI, aURI);
         }
       }
-
-      // Inform the favicon service that the favicon for oldURI also
-      // applies to aURI.
-      CopyFavicon(currentURI, aURI, mInPrivateBrowsing);
 
       return NS_OK;
     }
@@ -11834,8 +11812,8 @@ nsDocShell::AddState(JS::Handle<JS::Value> aData, const nsAString& aTitle,
   // document and it requires LOCATION_CHANGE_SAME_DOCUMENT flag. Otherwise,
   // FireOnLocationChange(...) breaks security UI.
   if (!equalURIs) {
-    SetCurrentURI(newURI, nullptr, true, LOCATION_CHANGE_SAME_DOCUMENT);
     document->SetDocumentURI(newURI);
+    SetCurrentURI(newURI, nullptr, true, LOCATION_CHANGE_SAME_DOCUMENT);
 
     AddURIVisit(newURI, oldURI, oldURI, 0);
 
