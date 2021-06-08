@@ -82,6 +82,7 @@
 #include "nsIRefreshURI.h"
 #include "nsIWebNavigation.h"
 #include "nsIScriptError.h"
+#include "nsISimpleEnumerator.h"
 #include "nsStyleSheetService.h"
 
 #include "nsNetUtil.h"     // for NS_NewURI
@@ -231,6 +232,7 @@
 #include "mozilla/dom/FontFaceSet.h"
 #include "mozilla/dom/BoxObject.h"
 #include "gfxVR.h"
+#include "gfxPrefs.h"
 
 #include "nsISpeculativeConnect.h"
 
@@ -1535,6 +1537,7 @@ nsIDocument::nsIDocument()
   : nsINode(nullNodeInfo),
     mReferrerPolicySet(false),
     mReferrerPolicy(mozilla::net::RP_Default),
+    mUpgradeInsecureRequests(false),
     mCharacterSet(NS_LITERAL_CSTRING("ISO-8859-1")),
     mNodeInfoManager(nullptr),
     mCompatMode(eCompatibility_FullStandards),
@@ -2264,7 +2267,7 @@ nsDocument::Reset(nsIChannel* aChannel, nsILoadGroup* aLoadGroup)
                                 NS_GET_IID(nsIURI), getter_AddRefs(baseURI));
     if (baseURI) {
       mDocumentBaseURI = baseURI;
-      mChromeXHRDocBaseURI = baseURI;
+      mChromeXHRDocBaseURI = nullptr;
     }
   }
 
@@ -2346,7 +2349,7 @@ nsDocument::ResetToURI(nsIURI *aURI, nsILoadGroup *aLoadGroup,
   mOriginalURI = nullptr;
 
   SetDocumentURI(aURI);
-  mChromeXHRDocURI = aURI;
+  mChromeXHRDocURI = nullptr;
   // If mDocumentBaseURI is null, nsIDocument::GetBaseURI() returns
   // mDocumentURI.
   mDocumentBaseURI = nullptr;
@@ -2686,6 +2689,19 @@ nsDocument::StartDocumentLoad(const char* aCommand, nsIChannel* aChannel,
     WarnIfSandboxIneffective(docShell, mSandboxFlags, GetChannel());
   }
 
+  // The CSP directive upgrade-insecure-requests not only applies to the
+  // toplevel document, but also to nested documents. Let's propagate that
+  // flag from the parent to the nested document.
+  nsCOMPtr<nsIDocShellTreeItem> treeItem = this->GetDocShell();
+  if (treeItem) {
+    nsCOMPtr<nsIDocShellTreeItem> sameTypeParent;
+    treeItem->GetSameTypeParent(getter_AddRefs(sameTypeParent));
+    if (sameTypeParent) {
+      mUpgradeInsecureRequests =
+        sameTypeParent->GetDocument()->GetUpgradeInsecureRequests();
+    }
+  }
+
   // If this is not a data document, set CSP.
   if (!mLoadedAsData) {
     nsresult rv = InitCSP(aChannel);
@@ -2966,6 +2982,13 @@ nsDocument::InitCSP(nsIChannel* aChannel)
     // Referrer Policy is set separately for the speculative parser in
     // nsHTMLDocument::StartDocumentLoad() so there's nothing to do here for
     // speculative loads.
+  }
+
+  // ------ Set flag for 'upgrade-insecure-requests' if not already
+  //        inherited from the parent context.
+  if (!mUpgradeInsecureRequests) {
+    rv = csp->GetUpgradeInsecureRequests(&mUpgradeInsecureRequests);
+    NS_ENSURE_SUCCESS(rv, rv);
   }
 
   rv = principal->SetCsp(csp);
@@ -3897,6 +3920,9 @@ nsDocument::DeleteShell()
   mExternalResourceMap.HideViewers();
   if (IsEventHandlingEnabled() && !AnimationsPaused()) {
     RevokeAnimationFrameNotifications();
+  }
+  if (nsPresContext* presContext = mPresShell->GetPresContext()) {
+    presContext->RefreshDriver()->CancelPendingEvents(this);
   }
 
   // When our shell goes away, request that all our images be immediately
@@ -6667,8 +6693,17 @@ nsIDocument::ImportNode(nsINode& aNode, bool aDeep, ErrorResult& rv) const
   nsINode* imported = &aNode;
 
   switch (imported->NodeType()) {
-    case nsIDOMNode::ATTRIBUTE_NODE:
+    case nsIDOMNode::DOCUMENT_NODE:
+    {
+      break;
+    }
     case nsIDOMNode::DOCUMENT_FRAGMENT_NODE:
+    {
+      if (ShadowRoot::FromNode(imported)) {
+        break;
+      }
+    }
+    case nsIDOMNode::ATTRIBUTE_NODE:
     case nsIDOMNode::ELEMENT_NODE:
     case nsIDOMNode::PROCESSING_INSTRUCTION_NODE:
     case nsIDOMNode::TEXT_NODE:
@@ -6688,11 +6723,10 @@ nsIDocument::ImportNode(nsINode& aNode, bool aDeep, ErrorResult& rv) const
     default:
     {
       NS_WARNING("Don't know how to clone this nodetype for importNode.");
-
-      rv.Throw(NS_ERROR_DOM_NOT_SUPPORTED_ERR);
     }
   }
 
+  rv.Throw(NS_ERROR_DOM_NOT_SUPPORTED_ERR);
   return nullptr;
 }
 
@@ -7695,6 +7729,12 @@ nsIDocument::AdoptNode(nsINode& aAdoptedNode, ErrorResult& rv)
       break;
     }
     case nsIDOMNode::DOCUMENT_FRAGMENT_NODE:
+    {
+      if (ShadowRoot::FromNode(adoptedNode)) {
+        rv.Throw(NS_ERROR_DOM_HIERARCHY_REQUEST_ERR);
+        return nullptr;
+      }
+    }
     case nsIDOMNode::ELEMENT_NODE:
     case nsIDOMNode::PROCESSING_INSTRUCTION_NODE:
     case nsIDOMNode::TEXT_NODE:
@@ -7854,7 +7894,7 @@ nsDocument::GetViewportInfo(const ScreenIntSize& aDisplaySize)
                           /*allowDoubleTapZoom*/ true);
   }
 
-  if (!Preferences::GetBool("dom.meta-viewport.enabled", false)) {
+  if (!gfxPrefs::MetaViewportEnabled()) {
     return nsViewportInfo(aDisplaySize,
                           defaultScale,
                           /*allowZoom*/ false,
@@ -9178,14 +9218,31 @@ NotifyPageHide(nsIDocument* aDocument, void* aData)
 }
 
 static void
+DispatchCustomEventWithFlush(nsINode* aTarget, const nsAString& aEventType,
+                             bool aBubbles, bool aOnlyChromeDispatch)
+{
+  nsCOMPtr<nsIDOMEvent> event;
+  NS_NewDOMEvent(getter_AddRefs(event), aTarget, nullptr, nullptr);
+  nsresult rv = event->InitEvent(aEventType, aBubbles, false);
+  if (NS_FAILED(rv)) {
+    return;
+  }
+  event->SetTrusted(true);
+  if (aOnlyChromeDispatch) {
+    event->GetInternalNSEvent()->mFlags.mOnlyChromeDispatch = true;
+  }
+  if (nsIPresShell* shell = aTarget->OwnerDoc()->GetShell()) {
+    shell->GetPresContext()->
+      RefreshDriver()->ScheduleEventDispatch(aTarget, event);
+  }
+}
+
+static void
 DispatchFullScreenChange(nsIDocument* aTarget)
 {
-  nsRefPtr<AsyncEventDispatcher> asyncDispatcher =
-    new AsyncEventDispatcher(aTarget,
-                             NS_LITERAL_STRING("mozfullscreenchange"),
-                             true,
-                             false);
-  asyncDispatcher->PostDOMEvent();
+  DispatchCustomEventWithFlush(
+    aTarget, NS_LITERAL_STRING("mozfullscreenchange"),
+    /* Bubbles */ true, /* OnlyChrome */ false);
 }
 
 void
@@ -9262,7 +9319,7 @@ nsDocument::OnPageHide(bool aPersisted,
     // doctree by the time OnPageHide() is called, so we must store a
     // reference to the root (in nsDocument::mFullscreenRoot) since we can't
     // just traverse the doctree to get the root.
-    nsIDocument::ExitFullscreen(this, /* async */ false);
+    nsIDocument::ExitFullscreenInDocTree(this);
 
     // Since the document is removed from the doctree before OnPageHide() is
     // called, ExitFullscreen() can't traverse from the root down to *this*
@@ -11075,31 +11132,43 @@ SetWindowFullScreen(nsIDocument* aDoc, bool aValue, gfx::VRHMDInfo *aVRHMD = nul
   nsContentUtils::AddScriptRunner(new nsSetWindowFullScreen(aDoc, aValue, aVRHMD));
 }
 
-class nsCallExitFullscreen : public nsRunnable {
+static void
+AskWindowToExitFullscreen(nsIDocument* aDoc)
+{
+  if (XRE_GetProcessType() == GeckoProcessType_Content) {
+    nsContentUtils::DispatchEventOnlyToChrome(
+      aDoc, ToSupports(aDoc), NS_LITERAL_STRING("MozDOMFullscreen:Exit"),
+      /* Bubbles */ true, /* Cancelable */ false,
+      /* DefaultAction */ nullptr);
+  } else {
+    SetWindowFullScreen(aDoc, false);
+  }
+}
+
+class nsCallExitFullscreen : public nsRunnable
+{
 public:
   explicit nsCallExitFullscreen(nsIDocument* aDoc)
     : mDoc(aDoc) {}
-  NS_IMETHOD Run()
+
+  NS_IMETHOD Run() override final
   {
-    nsDocument::ExitFullscreen(mDoc);
+    if (!mDoc) {
+      FullscreenRoots::ForEach(&AskWindowToExitFullscreen);
+    } else {
+      AskWindowToExitFullscreen(mDoc);
+    }
     return NS_OK;
   }
+
 private:
   nsCOMPtr<nsIDocument> mDoc;
 };
 
-/* static */
-void
-nsIDocument::ExitFullscreen(nsIDocument* aDoc, bool aRunAsync)
+/* static */ void
+nsIDocument::AsyncExitFullscreen(nsIDocument* aDoc)
 {
-  if (aDoc && !aDoc->IsFullScreenDoc()) {
-    return;
-  }
-  if (aRunAsync) {
-    NS_DispatchToCurrentThread(new nsCallExitFullscreen(aDoc));
-    return;
-  }
-  nsDocument::ExitFullscreen(aDoc);
+  NS_DispatchToCurrentThread(new nsCallExitFullscreen(aDoc));
 }
 
 static bool
@@ -11146,17 +11215,26 @@ ResetFullScreen(nsIDocument* aDocument, void* aData)
   return true;
 }
 
-static void
-ExitFullscreenInDocTree(nsIDocument* aMaybeNotARootDoc)
+/* static */ void
+nsIDocument::ExitFullscreenInDocTree(nsIDocument* aMaybeNotARootDoc)
 {
   MOZ_ASSERT(aMaybeNotARootDoc);
+
+  // Unlock the pointer
+  UnlockPointer();
+
   nsCOMPtr<nsIDocument> root = aMaybeNotARootDoc->GetFullscreenRoot();
-  NS_ASSERTION(root, "Should have root when in fullscreen!");
-  if (!root) {
+  if (!root || !root->IsFullScreenDoc()) {
+    // If a document was detached before exiting from fullscreen, it is
+    // possible that the root had left fullscreen state. In this case,
+    // we would not get anything from the ResetFullScreen() call. Root's
+    // not being a fullscreen doc also means the widget should have
+    // exited fullscreen state. It means even if we do not return here,
+    // we would actually do nothing below except crashing ourselves via
+    // dispatching the "MozDOMFullscreen:Exited" event to an nonexistent
+    // document.
     return;
   }
-  NS_ASSERTION(root->IsFullScreenDoc(),
-    "Fullscreen root should be a fullscreen doc...");
 
   // Stores a list of documents to which we must dispatch "mozfullscreenchange".
   // We're required by the spec to dispatch the events in leaf-to-root
@@ -11181,32 +11259,13 @@ ExitFullscreenInDocTree(nsIDocument* aMaybeNotARootDoc)
   // Dispatch MozDOMFullscreen:Exited to the last document in
   // the list since we want this event to follow the same path
   // MozDOMFullscreen:Entered dispatched.
-  nsRefPtr<AsyncEventDispatcher> asyncDispatcher =
-    new AsyncEventDispatcher(changed.LastElement(),
-                             NS_LITERAL_STRING("MozDOMFullscreen:Exited"),
-                             true, true);
-  asyncDispatcher->PostDOMEvent();
+  nsContentUtils::DispatchEventOnlyToChrome(
+    changed.LastElement(), ToSupports(changed.LastElement()),
+    NS_LITERAL_STRING("MozDOMFullscreen:Exited"),
+    /* Bubbles */ true, /* Cancelable */ false, /* DefaultAction */ nullptr);
   // Move the top-level window out of fullscreen mode.
   FullscreenRoots::Remove(root);
   SetWindowFullScreen(root, false);
-}
-
-/* static */
-void
-nsDocument::ExitFullscreen(nsIDocument* aDoc)
-{
-  // Unlock the pointer
-  UnlockPointer();
-
-  if (aDoc)  {
-    ExitFullscreenInDocTree(aDoc);
-    return;
-  }
-
-  // Clear fullscreen stacks in all fullscreen roots' descendant documents.
-  FullscreenRoots::ForEach(&ExitFullscreenInDocTree);
-  NS_ASSERTION(FullscreenRoots::IsEmpty(),
-      "Should have exited all fullscreen roots from fullscreen");
 }
 
 bool
@@ -11263,13 +11322,7 @@ nsDocument::RestorePreviousFullScreenState()
   if (exitingFullscreen) {
     // If we are fully exiting fullscreen, don't touch anything here,
     // just wait for the window to get out from fullscreen first.
-    if (XRE_GetProcessType() == GeckoProcessType_Content) {
-      (new AsyncEventDispatcher(
-        this, NS_LITERAL_STRING("MozDOMFullscreen:Exit"),
-        /* Bubbles */ true, /* ChromeOnly */ true))->PostDOMEvent();
-    } else {
-      SetWindowFullScreen(this, false);
-    }
+    AskWindowToExitFullscreen(this);
     return;
   }
 
@@ -11309,11 +11362,9 @@ nsDocument::RestorePreviousFullScreenState()
         if (!nsContentUtils::HaveEqualPrincipals(fullScreenDoc, doc) ||
             (!nsContentUtils::IsSitePermAllow(doc->NodePrincipal(), "fullscreen") &&
              !static_cast<nsDocument*>(doc)->mIsApprovedForFullscreen)) {
-          nsRefPtr<AsyncEventDispatcher> asyncDispatcher =
-            new AsyncEventDispatcher(
-                doc, NS_LITERAL_STRING("MozDOMFullscreen:NewOrigin"),
-                /* Bubbles */ true, /* ChromeOnly */ true);
-          asyncDispatcher->PostDOMEvent();
+          DispatchCustomEventWithFlush(
+            doc, NS_LITERAL_STRING("MozDOMFullscreen:NewOrigin"),
+            /* Bubbles */ true, /* ChromeOnly */ true);
         }
       }
       break;
@@ -11705,9 +11756,9 @@ nsDocument::RequestFullScreen(UniquePtr<FullscreenRequest>&& aRequest)
   if (XRE_GetProcessType() == GeckoProcessType_Content) {
     // If we are not the top level process, dispatch an event to make
     // our parent process go fullscreen first.
-    (new AsyncEventDispatcher(
-       this, NS_LITERAL_STRING("MozDOMFullscreen:Request"),
-       /* Bubbles */ true, /* ChromeOnly */ true))->PostDOMEvent();
+    nsContentUtils::DispatchEventOnlyToChrome(
+      this, ToSupports(this), NS_LITERAL_STRING("MozDOMFullscreen:Request"),
+      /* Bubbles */ true, /* Cancelable */ false, /* DefaultAction */ nullptr);
   } else {
     // Make the window fullscreen.
     FullscreenRequest* lastRequest = sPendingFullscreenRequests.getLast();
@@ -11834,13 +11885,6 @@ nsDocument::ApplyFullscreen(const FullscreenRequest& aRequest)
     }
   }
 
-  // Dispatch "mozfullscreenchange" events. Note this loop is in reverse
-  // order so that the events for the root document arrives before the leaf
-  // document, as required by the spec.
-  for (uint32_t i = 0; i < changed.Length(); ++i) {
-    DispatchFullScreenChange(changed[changed.Length() - i - 1]);
-  }
-
   // If this document hasn't already been approved in this session,
   // check to see if the user has granted the fullscreen access
   // to the document's principal's host, if it has one. Note that documents
@@ -11853,17 +11897,17 @@ nsDocument::ApplyFullscreen(const FullscreenRequest& aRequest)
       nsContentUtils::IsSitePermAllow(NodePrincipal(), "fullscreen");
   }
 
+  FullscreenRoots::Add(this);
+
   // If it is the first entry of the fullscreen, trigger an event so
   // that the UI can response to this change, e.g. hide chrome, or
   // notifying parent process to enter fullscreen. Note that chrome
   // code may also want to listen to MozDOMFullscreen:NewOrigin event
   // to pop up warning/approval UI.
   if (!previousFullscreenDoc) {
-    nsRefPtr<AsyncEventDispatcher> asyncDispatcher =
-      new AsyncEventDispatcher(
-        elem, NS_LITERAL_STRING("MozDOMFullscreen:Entered"),
-        /* Bubbles */ true, /* ChromeOnly */ true);
-    asyncDispatcher->PostDOMEvent();
+    nsContentUtils::DispatchEventOnlyToChrome(
+      this, ToSupports(elem), NS_LITERAL_STRING("MozDOMFullscreen:Entered"),
+      /* Bubbles */ true, /* Cancelable */ false, /* DefaultAction */ nullptr);
   }
 
   // The origin which is fullscreen gets changed. Trigger an event so
@@ -11875,14 +11919,17 @@ nsDocument::ApplyFullscreen(const FullscreenRequest& aRequest)
   // shouldn't rely on this event itself.
   if (aRequest.mShouldNotifyNewOrigin &&
       !nsContentUtils::HaveEqualPrincipals(previousFullscreenDoc, this)) {
-    nsRefPtr<AsyncEventDispatcher> asyncDispatcher =
-      new AsyncEventDispatcher(
-        this, NS_LITERAL_STRING("MozDOMFullscreen:NewOrigin"),
-        /* Bubbles */ true, /* ChromeOnly */ true);
-    asyncDispatcher->PostDOMEvent();
+    DispatchCustomEventWithFlush(
+      this, NS_LITERAL_STRING("MozDOMFullscreen:NewOrigin"),
+      /* Bubbles */ true, /* ChromeOnly */ true);
   }
 
-  FullscreenRoots::Add(this);
+  // Dispatch "mozfullscreenchange" events. Note this loop is in reverse
+  // order so that the events for the root document arrives before the leaf
+  // document, as required by the spec.
+  for (uint32_t i = 0; i < changed.Length(); ++i) {
+    DispatchFullScreenChange(changed[changed.Length() - i - 1]);
+  }
 }
 
 NS_IMETHODIMP

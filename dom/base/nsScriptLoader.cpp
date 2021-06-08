@@ -791,9 +791,9 @@ public:
 } /* anonymous namespace */
 
 nsresult
-nsScriptLoader::ProcessOffThreadRequest(nsScriptLoadRequest* aRequest, void **aOffThreadToken)
+nsScriptLoader::ProcessOffThreadRequest(nsScriptLoadRequest* aRequest)
 {
-  nsresult rv = ProcessRequest(aRequest, aOffThreadToken);
+  nsresult rv = ProcessRequest(aRequest);
   mDocument->UnblockOnload(false);
   return rv;
 }
@@ -825,14 +825,8 @@ NotifyOffThreadScriptLoadCompletedRunnable::Run()
   nsRefPtr<nsScriptLoadRequest> request = mRequest.forget();
   nsRefPtr<nsScriptLoader> loader = mLoader.forget();
 
-  nsresult rv = loader->ProcessOffThreadRequest(request, &mToken);
-
-  if (mToken) {
-    // The result of the off thread parse was not actually needed to process
-    // the request (disappearing window, some other error, ...). Finish the
-    // request to avoid leaks in the JS engine.
-    JS::FinishOffThreadScript(nullptr, xpc::GetJSRuntime(), mToken);
-  }
+  request->mOffThreadToken = mToken;
+  nsresult rv = loader->ProcessOffThreadRequest(request);
 
   return rv;
 }
@@ -889,16 +883,26 @@ nsScriptLoader::AttemptAsyncScriptParse(nsScriptLoadRequest* aRequest)
 }
 
 nsresult
-nsScriptLoader::ProcessRequest(nsScriptLoadRequest* aRequest, void **aOffThreadToken)
+nsScriptLoader::ParseOffThreadOrProcessRequest(nsScriptLoadRequest* aRequest)
 {
   NS_ASSERTION(nsContentUtils::IsSafeToRunScript(),
                "Processing requests when running scripts is unsafe.");
+  NS_ASSERTION(!aRequest->mOffThreadToken,
+               "Candidate for off-thread parsing is already parsed off-thread");
 
-  if (!aOffThreadToken) {
-    nsresult rv = AttemptAsyncScriptParse(aRequest);
-    if (rv != NS_ERROR_FAILURE)
-      return rv;
+  nsresult rv = AttemptAsyncScriptParse(aRequest);
+  if (rv != NS_ERROR_FAILURE) {
+    return rv;
   }
+
+  return ProcessRequest(aRequest);
+}
+
+nsresult
+nsScriptLoader::ProcessRequest(nsScriptLoadRequest* aRequest)
+{
+  NS_ASSERTION(nsContentUtils::IsSafeToRunScript(),
+               "Processing requests when running scripts is unsafe.");
 
   NS_ENSURE_ARG(aRequest);
   nsAutoString textData;
@@ -967,7 +971,7 @@ nsScriptLoader::ProcessRequest(nsScriptLoadRequest* aRequest, void **aOffThreadT
       doc->BeginEvaluatingExternalScript();
     }
     aRequest->mElement->BeginEvaluating();
-    rv = EvaluateScript(aRequest, srcBuf, aOffThreadToken);
+    rv = EvaluateScript(aRequest, srcBuf);
     aRequest->mElement->EndEvaluating();
     if (doc) {
       doc->EndEvaluatingExternalScript();
@@ -983,6 +987,15 @@ nsScriptLoader::ProcessRequest(nsScriptLoadRequest* aRequest, void **aOffThreadT
 
   if (parserCreated) {
     mCurrentParserInsertedScript = oldParserInsertedScript;
+  }
+
+  if (aRequest->mOffThreadToken) {
+    // The request was parsed off-main-thread, but the result of the off
+    // thread parse was not actually needed to process the request
+    // (disappearing window, some other error, ...). Finish the
+    // request to avoid leaks in the JS engine.
+    JS::FinishOffThreadScript(nullptr, xpc::GetJSRuntime(), aRequest->mOffThreadToken);
+    aRequest->mOffThreadToken = nullptr;
   }
 
   return rv;
@@ -1075,8 +1088,7 @@ nsScriptLoader::FillCompileOptionsForRequest(const AutoJSAPI &jsapi,
 
 nsresult
 nsScriptLoader::EvaluateScript(nsScriptLoadRequest* aRequest,
-                               JS::SourceBufferHolder& aSrcBuf,
-                               void** aOffThreadToken)
+                               JS::SourceBufferHolder& aSrcBuf)
 {
   // We need a document to evaluate scripts.
   if (!mDocument) {
@@ -1141,7 +1153,7 @@ nsScriptLoader::EvaluateScript(nsScriptLoadRequest* aRequest,
     JS::CompileOptions options(entryScript.cx());
     FillCompileOptionsForRequest(entryScript, aRequest, global, &options);
     rv = nsJSUtils::EvaluateString(entryScript.cx(), aSrcBuf, global, options,
-                                   aOffThreadToken);
+                                   aRequest->OffThreadTokenPtr());
   }
 
   context->SetProcessingScriptTag(oldProcessingScriptTag);
@@ -1181,7 +1193,7 @@ nsScriptLoader::ProcessPendingRequests()
 
   while (mEnabled && !mLoadedAsyncRequests.isEmpty()) {
     request = mLoadedAsyncRequests.StealFirst();
-    ProcessRequest(request);
+    ParseOffThreadOrProcessRequest(request);
   }
 
   while (mEnabled && !mNonAsyncExternalScriptInsertedRequests.isEmpty() &&
