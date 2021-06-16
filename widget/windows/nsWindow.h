@@ -126,6 +126,11 @@ public:
                                     uint32_t aHotspotX, uint32_t aHotspotY);
   NS_IMETHOD              SetCursor(nsCursor aCursor);
   virtual nsresult        ConfigureChildren(const nsTArray<Configuration>& aConfigurations);
+  virtual bool PrepareForFullscreenTransition(nsISupports** aData) override;
+  virtual void PerformFullscreenTransition(FullscreenTransitionStage aStage,
+                                           uint16_t aDuration,
+                                           nsISupports* aData,
+                                           nsIRunnable* aCallback) override;
   NS_IMETHOD              MakeFullScreen(bool aFullScreen, nsIScreen* aScreen = nullptr);
   NS_IMETHOD              HideWindowChrome(bool aShouldHide);
   NS_IMETHOD              Invalidate(bool aEraseBackground = false,
@@ -239,6 +244,7 @@ public:
    * Misc.
    */
   virtual bool            AutoErase(HDC dc);
+  bool ComputeShouldAccelerate() override;
 
   static void             ClearCompositor(nsWindow* aWindow);
 
@@ -276,8 +282,6 @@ public:
   void                    PickerClosed();
 
   bool                    const DestroyCalled() { return mDestroyCalled; }
-
-  virtual void GetPreferredCompositorBackends(nsTArray<mozilla::layers::LayersBackend>& aHints);
 
   bool IsPopup();
   virtual bool ShouldUseOffMainThreadCompositing();
@@ -462,6 +466,7 @@ protected:
   nsIntSize             mLastSize;
   nsIntPoint            mLastPoint;
   HWND                  mWnd;
+  HWND                  mTransitionWnd;
   WNDPROC               mPrevWndProc;
   HBRUSH                mBrush;
   bool                  mIsTopWidgetWindow;
