@@ -19,6 +19,7 @@
 #include "GfxDriverInfo.h"
 #include "nsServiceManagerUtils.h"      // for do_GetService
 #include "MediaInfo.h"
+#include "gfxPlatform.h"
 
 namespace mozilla {
 
