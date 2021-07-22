@@ -254,8 +254,7 @@ NS_IMPL_ISUPPORTS(RasterImage, imgIContainer, nsIProperties,
 #endif
 
 //******************************************************************************
-RasterImage::RasterImage(ProgressTracker* aProgressTracker,
-                         ImageURL* aURI /* = nullptr */) :
+RasterImage::RasterImage(ImageURL* aURI /* = nullptr */) :
   ImageResource(aURI), // invoke superclass's constructor
   mSize(0,0),
   mLockCount(0),
@@ -279,8 +278,6 @@ RasterImage::RasterImage(ProgressTracker* aProgressTracker,
   mAnimationFinished(false),
   mWantFullDecode(false)
 {
-  mProgressTrackerInit = new ProgressTrackerInit(this, aProgressTracker);
-
   Telemetry::GetHistogramById(Telemetry::IMAGE_DECODE_COUNT)->Add(0);
 }
 
@@ -908,7 +905,10 @@ RasterImage::UpdateImageContainer()
   }
 
   mLastImageContainerDrawResult = result.first();
-  container->SetCurrentImage(result.second());
+  nsAutoTArray<ImageContainer::NonOwningImage,1> imageList;
+  imageList.AppendElement(
+      ImageContainer::NonOwningImage(result.second(), TimeStamp()));
+  container->SetCurrentImages(imageList);
 }
 
 size_t
