@@ -187,13 +187,15 @@ WMFVideoMFTManager::Init()
   HRESULT hr = decoder->Create(GetMFTGUID());
   NS_ENSURE_TRUE(SUCCEEDED(hr), nullptr);
 
-  if (useDxva) {
-    RefPtr<IMFAttributes> attr(decoder->GetAttributes());
-
-    UINT32 aware = 0;
-    if (attr) {
+  RefPtr<IMFAttributes> attr(decoder->GetAttributes());
+  UINT32 aware = 0;
+  if (attr) {
       attr->GetUINT32(MF_SA_D3D_AWARE, &aware);
-    }
+      attr->SetUINT32(CODECAPI_AVDecNumWorkerThreads,
+                      WMFDecoderModule::GetNumDecoderThreads());
+  }
+
+  if (useDxva) {
     if (aware) {
       // TODO: Test if I need this anywhere... Maybe on Vista?
       //hr = attr->SetUINT32(CODECAPI_AVDecVideoAcceleration_H264, TRUE);
@@ -399,8 +401,10 @@ WMFVideoMFTManager::CreateBasicVideoFrame(IMFSample* aSample,
   b.mPlanes[2].mOffset = 0;
   b.mPlanes[2].mSkip = 0;
 
-  Microseconds pts = GetSampleTime(aSample);
-  Microseconds duration = GetSampleDuration(aSample);
+  media::TimeUnit pts = GetSampleTime(aSample);
+  NS_ENSURE_TRUE(pts.IsValid(), E_FAIL);
+  media::TimeUnit duration = GetSampleDuration(aSample);
+  NS_ENSURE_TRUE(duration.IsValid(), E_FAIL);
 
   nsRefPtr<layers::PlanarYCbCrImage> image =
     new IMFYCbCrImage(buffer, twoDBuffer);
@@ -415,8 +419,8 @@ WMFVideoMFTManager::CreateBasicVideoFrame(IMFSample* aSample,
     VideoData::CreateFromImage(mVideoInfo,
                                mImageContainer,
                                aStreamOffset,
-                               std::max(0LL, pts),
-                               duration,
+                               pts.ToMicroseconds(),
+                               duration.ToMicroseconds(),
                                image.forget(),
                                false,
                                -1,
@@ -447,13 +451,15 @@ WMFVideoMFTManager::CreateD3DVideoFrame(IMFSample* aSample,
   NS_ENSURE_TRUE(SUCCEEDED(hr), hr);
   NS_ENSURE_TRUE(image, E_FAIL);
 
-  Microseconds pts = GetSampleTime(aSample);
-  Microseconds duration = GetSampleDuration(aSample);
+  media::TimeUnit pts = GetSampleTime(aSample);
+  NS_ENSURE_TRUE(pts.IsValid(), E_FAIL);
+  media::TimeUnit duration = GetSampleDuration(aSample);
+  NS_ENSURE_TRUE(duration.IsValid(), E_FAIL);
   nsRefPtr<VideoData> v = VideoData::CreateFromImage(mVideoInfo,
                                                      mImageContainer,
                                                      aStreamOffset,
-                                                     pts,
-                                                     duration,
+                                                     pts.ToMicroseconds(),
+                                                     duration.ToMicroseconds(),
                                                      image.forget(),
                                                      false,
                                                      -1,

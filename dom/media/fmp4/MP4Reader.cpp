@@ -140,7 +140,7 @@ InvokeAndRetry(ThisType* aThisVal, ReturnType(ThisType::*aMethod)(), MP4Stream* 
   }
 }
 
-MP4Reader::MP4Reader(AbstractMediaDecoder* aDecoder, MediaTaskQueue* aBorrowedTaskQueue)
+MP4Reader::MP4Reader(AbstractMediaDecoder* aDecoder, TaskQueue* aBorrowedTaskQueue)
   : MediaDecoderReader(aDecoder, aBorrowedTaskQueue)
   , mAudio(MediaData::AUDIO_DATA, Preferences::GetUint("media.mp4-audio-decode-ahead", 2))
   , mVideo(MediaData::VIDEO_DATA, Preferences::GetUint("media.mp4-video-decode-ahead", 2))
@@ -239,11 +239,11 @@ MP4Reader::Init(MediaDecoderReader* aCloneDonor)
   InitLayersBackendType();
 
   mAudio.mTaskQueue =
-    new FlushableMediaTaskQueue(GetMediaThreadPool(MediaThreadType::PLATFORM_DECODER));
+    new FlushableTaskQueue(GetMediaThreadPool(MediaThreadType::PLATFORM_DECODER));
   NS_ENSURE_TRUE(mAudio.mTaskQueue, NS_ERROR_FAILURE);
 
   mVideo.mTaskQueue =
-    new FlushableMediaTaskQueue(GetMediaThreadPool(MediaThreadType::PLATFORM_DECODER));
+    new FlushableTaskQueue(GetMediaThreadPool(MediaThreadType::PLATFORM_DECODER));
   NS_ENSURE_TRUE(mVideo.mTaskQueue, NS_ERROR_FAILURE);
 
   static bool sSetupPrefCache = false;
@@ -361,7 +361,7 @@ MP4Reader::ReadMetadata(MediaInfo* aInfo,
   }
 
   // Get the duration, and report it to the decoder if we have it.
-  Microseconds duration;
+  mp4_demuxer::Microseconds duration;
   {
     MonitorAutoLock lock(mDemuxerMonitor);
     duration = mDemuxer->Duration();
@@ -497,7 +497,7 @@ MP4Reader::GetDecoderData(TrackType aTrack)
   return mVideo;
 }
 
-Microseconds
+mp4_demuxer::Microseconds
 MP4Reader::GetNextKeyframeTime()
 {
   MonitorAutoLock mon(mDemuxerMonitor);
@@ -532,7 +532,7 @@ MP4Reader::ShouldSkip(bool aSkipToNextKeyframe, int64_t aTimeThreshold)
   // if the time threshold (the current playback position) is after the next
   // keyframe in the stream. This means we'll only skip frames that we have
   // no hope of ever playing.
-  Microseconds nextKeyframe = -1;
+  mp4_demuxer::Microseconds nextKeyframe = -1;
   if (!sDemuxSkipToNextKeyframe ||
       (nextKeyframe = GetNextKeyframeTime()) == -1) {
     return aSkipToNextKeyframe;
@@ -618,7 +618,7 @@ MP4Reader::ScheduleUpdate(TrackType aTrack)
   decoder.mUpdateScheduled = true;
   RefPtr<nsIRunnable> task(
     NS_NewRunnableMethodWithArg<TrackType>(this, &MP4Reader::Update, aTrack));
-  TaskQueue()->Dispatch(task.forget());
+  OwnerThread()->Dispatch(task.forget());
 }
 
 bool
@@ -1026,7 +1026,7 @@ MP4Reader::GetBuffered()
   nsresult rv = resource->GetCachedRanges(ranges);
 
   if (NS_SUCCEEDED(rv)) {
-    nsTArray<Interval<Microseconds>> timeRanges;
+    nsTArray<Interval<mp4_demuxer::Microseconds>> timeRanges;
     mDemuxer->ConvertByteRangesToTime(ranges, &timeRanges);
     for (size_t i = 0; i < timeRanges.Length(); i++) {
       buffered += media::TimeInterval(
