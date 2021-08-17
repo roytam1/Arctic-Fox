@@ -566,7 +566,7 @@ nsPIDOMWindow::nsPIDOMWindow(nsPIDOMWindow *aOuterWindow)
   mMayHavePointerEnterLeaveEventListener(false),
   mIsModalContentWindow(false),
   mIsActive(false), mIsBackground(false),
-  mAudioMuted(false), mAudioVolume(1.0),
+  mAudioMuted(false), mAudioVolume(1.0), mAudioCaptured(false),
   mDesktopModeViewport(false), mInnerWindow(nullptr),
   mOuterWindow(aOuterWindow),
   // Make sure no actual window ends up with mWindowID == 0
@@ -3740,6 +3740,26 @@ nsPIDOMWindow::RefreshMediaElements()
   service->RefreshAgentsVolume(GetOuterWindow());
 }
 
+bool
+nsPIDOMWindow::GetAudioCaptured() const
+{
+  MOZ_ASSERT(IsInnerWindow());
+  return mAudioCaptured;
+}
+
+nsresult
+nsPIDOMWindow::SetAudioCapture(bool aCapture)
+{
+  MOZ_ASSERT(IsInnerWindow());
+
+  mAudioCaptured = aCapture;
+
+  nsRefPtr<AudioChannelService> service = AudioChannelService::GetOrCreate();
+  service->RefreshAgentsCapture(GetOuterWindow(), mWindowID);
+
+  return NS_OK;
+}
+
 // nsISpeechSynthesisGetter
 
 #ifdef MOZ_WEBSPEECH
@@ -6339,6 +6359,12 @@ FullscreenTransitionTask::Run()
 {
   Stage stage = mStage;
   mStage = Stage(mStage + 1);
+  if (MOZ_UNLIKELY(mWidget->Destroyed())) {
+    // If the widget has been destroyed before we get here, don't try to
+    // do anything more. Just let it go and release ourselves.
+    NS_WARNING("The widget to fullscreen has been destroyed");
+    return NS_OK;
+  }
   if (stage == eBeforeToggle) {
     mWidget->PerformFullscreenTransition(nsIWidget::eBeforeFullscreenToggle,
                                          mDuration.mFadeIn, mTransitionData,

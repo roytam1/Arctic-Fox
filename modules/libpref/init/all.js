@@ -478,6 +478,8 @@ pref("media.getusermedia.screensharing.allowed_domains", "mozilla.github.io,webe
 // OS/X 10.6 and XP have screen/window sharing off by default due to various issues - Caveat emptor
 pref("media.getusermedia.screensharing.allow_on_old_platforms", false);
 
+pref("media.getusermedia.audiocapture.enabled", false);
+
 // TextTrack support
 pref("media.webvtt.enabled", true);
 pref("media.webvtt.regions.enabled", false);
@@ -496,7 +498,7 @@ pref("media.mediasource.format-reader", true);
 // Enable new MediaFormatReader architecture for webm in MSE
 pref("media.mediasource.format-reader.webm", false);
 // Enable new MediaFormatReader architecture for plain webm.
-pref("media.format-reader.webm", false);
+pref("media.format-reader.webm", true);
 
 #ifdef MOZ_WEBSPEECH
 pref("media.webspeech.recognition.enable", false);
@@ -2209,6 +2211,9 @@ pref("security.apps.privileged.CSP.default", "default-src * data: blob:; script-
 // Mixed content blocking
 pref("security.mixed_content.block_active_content", false);
 pref("security.mixed_content.block_display_content", false);
+
+// Sub-resource integrity
+pref("security.sri.enable", false);
 
 // Enable pinning checks by default.
 pref("security.cert_pinning.enforcement_level", 2);
