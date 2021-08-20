@@ -131,7 +131,6 @@ EXPORTS += [
     'RtspMediaResource.h',
     'SelfRef.h',
     'SharedBuffer.h',
-    'SharedThreadPool.h',
     'StreamBuffer.h',
     'ThreadPoolCOMListener.h',
     'TimeUnits.h',
@@ -144,12 +143,10 @@ EXPORTS += [
 ]
 
 EXPORTS.mozilla += [
-    'AbstractThread.h',
     'MediaManager.h',
     'MozPromise.h',
     'StateMirroring.h',
     'StateWatching.h',
-    'TaskDispatcher.h',
     'TaskQueue.h',
 ]
 
@@ -188,7 +185,6 @@ EXPORTS.mozilla.dom += [
 ]
 
 UNIFIED_SOURCES += [
-    'AbstractThread.cpp',
     'AudioCaptureStream.cpp',
     'AudioChannelFormat.cpp',
     'AudioCompactor.cpp',
@@ -229,7 +225,6 @@ UNIFIED_SOURCES += [
     'MP3Demuxer.cpp',
     'MP3FrameParser.cpp',
     'RtspMediaResource.cpp',
-    'SharedThreadPool.cpp',
     'StreamBuffer.cpp',
     'TaskQueue.cpp',
     'TextTrack.cpp',
