@@ -14,7 +14,7 @@
 
 #include <string>
 
-#if defined(XP_WIN) && defined(MOZ_SANDBOX)
+#ifdef XP_WIN
 #include "mozilla/Scoped.h"
 #include "windows.h"
 #include <intrin.h>
@@ -196,7 +196,7 @@ GMPLoaderImpl::Load(const char* aUTF8LibPath,
     nodeId = std::string(aOriginSalt, aOriginSalt + aOriginSaltLen);
   }
 
-#if defined(XP_WIN) && defined(MOZ_SANDBOX)
+#ifdef XP_WIN
   // If the GMP DLL is a side-by-side assembly with static imports then the DLL
   // loader will attempt to create an activation context which will fail because
   // of the sandbox. If we create an activation context before we start the
@@ -210,7 +210,9 @@ GMPLoaderImpl::Load(const char* aUTF8LibPath,
   if (MultiByteToWideChar(CP_UTF8, 0, aUTF8LibPath, -1, widePath, pathLen) == 0) {
     return false;
   }
+#endif
 
+#if defined(XP_WIN) && defined(MOZ_SANDBOX)
   ACTCTX actCtx = { sizeof(actCtx) };
   actCtx.dwFlags = ACTCTX_FLAG_RESOURCE_NAME_VALID;
   actCtx.lpSource = widePath;
