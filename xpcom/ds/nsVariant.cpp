@@ -65,8 +65,8 @@ nsDiscriminatedUnion::ToManageableNumber(nsDiscriminatedUnion* aOutData) const
     // This group results in a int32_t...
 
 #define CASE__NUMBER_INT32(type_, member_)                                    \
-    case nsIDataType :: type_ :                                               \
-        aOutData->u.mInt32Value = u. member_ ;                                \
+    case nsIDataType::type_ :                                                 \
+        aOutData->u.mInt32Value = u.member_ ;                                 \
         aOutData->mType = nsIDataType::VTYPE_INT32;                           \
         return NS_OK;
 
@@ -172,9 +172,9 @@ nsDiscriminatedUnion::FreeArray()
   NS_ASSERTION(u.array.mArrayCount, "bad array count");
 
 #define CASE__FREE_ARRAY_PTR(type_, ctype_)                                   \
-        case nsIDataType:: type_ :                                            \
+        case nsIDataType::type_ :                                             \
         {                                                                     \
-            ctype_ ** p = (ctype_ **) u.array.mArrayValue;                    \
+            ctype_** p = (ctype_**) u.array.mArrayValue;                      \
             for (uint32_t i = u.array.mArrayCount; i > 0; p++, i--)           \
                 if (*p)                                                       \
                     free((char*)*p);                                          \
@@ -182,9 +182,9 @@ nsDiscriminatedUnion::FreeArray()
         }
 
 #define CASE__FREE_ARRAY_IFACE(type_, ctype_)                                 \
-        case nsIDataType:: type_ :                                            \
+        case nsIDataType::type_ :                                             \
         {                                                                     \
-            ctype_ ** p = (ctype_ **) u.array.mArrayValue;                    \
+            ctype_** p = (ctype_**) u.array.mArrayValue;                      \
             for (uint32_t i = u.array.mArrayCount; i > 0; p++, i--)           \
                 if (*p)                                                       \
                     (*p)->Release();                                          \
@@ -458,7 +458,7 @@ bad:
 /***************************************************************************/
 
 #define TRIVIAL_DATA_CONVERTER(type_, member_, retval_)                       \
-    if (mType == nsIDataType :: type_) {                                      \
+    if (mType == nsIDataType::type_) {                                        \
         *retval_ = u.member_;                                                 \
         return NS_OK;                                                         \
     }
@@ -789,10 +789,10 @@ nsDiscriminatedUnion::ToString(nsACString& aOutString) const
 
     // Can't use PR_smprintf for floats, since it's locale-dependent
 #define CASE__APPENDFLOAT_NUMBER(type_, member_)                        \
-    case nsIDataType :: type_ :                                         \
+    case nsIDataType::type_ :                                           \
     {                                                                   \
         nsAutoCString str;                                              \
-        str.AppendFloat(u. member_);                              \
+        str.AppendFloat(u.member_);                                     \
         aOutString.Assign(str);                                         \
         return NS_OK;                                                   \
     }
@@ -804,9 +804,9 @@ nsDiscriminatedUnion::ToString(nsACString& aOutString) const
 
     // the rest can be PR_smprintf'd and use common code.
 
-#define CASE__SMPRINTF_NUMBER(type_, format_, cast_, member_)                 \
-    case nsIDataType :: type_ :                                               \
-        ptr = PR_smprintf( format_ , (cast_) u. member_ );              \
+#define CASE__SMPRINTF_NUMBER(type_, format_, cast_, member_)          \
+    case nsIDataType::type_:                                           \
+        ptr = PR_smprintf( format_ , (cast_) u.member_);               \
         break;
 
     CASE__SMPRINTF_NUMBER(VTYPE_INT8,   "%d",   int,      mInt8Value)
@@ -1200,7 +1200,7 @@ nsDiscriminatedUnion::ConvertToArray(uint16_t* aType, nsIID* aIID,
     Cleanup()
 
 #define DATA_SETTER_EPILOGUE(type_)                                           \
-    mType = nsIDataType :: type_;                                             \
+    mType = nsIDataType::type_;                                               \
     return NS_OK
 
 #define DATA_SETTER(type_, member_, value_)                                   \
@@ -1220,38 +1220,38 @@ nsDiscriminatedUnion::ConvertToArray(uint16_t* aType, nsIID* aIID,
     {                                                                         \
 
 #define CASE__SET_FROM_VARIANT_VTYPE__GETTER(member_, name_)                  \
-        rv = aValue->GetAs##name_ (&(aData->u. member_ ));
+        rv = aValue->GetAs##name_ (&(u.member_ ));
 
 #define CASE__SET_FROM_VARIANT_VTYPE__GETTER_CAST(cast_, member_, name_)      \
-        rv = aValue->GetAs##name_ ( cast_ &(aData->u. member_ ));
+        rv = aValue->GetAs##name_ ( cast_ &(u.member_ ));
 
 #define CASE__SET_FROM_VARIANT_VTYPE_EPILOGUE(type_)                          \
         if (NS_SUCCEEDED(rv)) {                                               \
-          aData->mType  = nsIDataType :: type_ ;                              \
+          mType  = nsIDataType::type_ ;                                       \
         }                                                                     \
         break;                                                                \
     }
 
 #define CASE__SET_FROM_VARIANT_TYPE(type_, member_, name_)                    \
-    case nsIDataType :: type_ :                                               \
+    case nsIDataType::type_:                                                  \
         CASE__SET_FROM_VARIANT_VTYPE_PROLOGUE(type_)                          \
         CASE__SET_FROM_VARIANT_VTYPE__GETTER(member_, name_)                  \
         CASE__SET_FROM_VARIANT_VTYPE_EPILOGUE(type_)
 
 #define CASE__SET_FROM_VARIANT_VTYPE_CAST(type_, cast_, member_, name_)       \
-    case nsIDataType :: type_ :                                               \
+    case nsIDataType::type_ :                                                 \
         CASE__SET_FROM_VARIANT_VTYPE_PROLOGUE(type_)                          \
         CASE__SET_FROM_VARIANT_VTYPE__GETTER_CAST(cast_, member_, name_)      \
         CASE__SET_FROM_VARIANT_VTYPE_EPILOGUE(type_)
 
 
-/* static */ nsresult
-nsVariant::SetFromVariant(nsDiscriminatedUnion* aData, nsIVariant* aValue)
+nsresult
+nsDiscriminatedUnion::SetFromVariant(nsIVariant* aValue)
 {
   uint16_t type;
   nsresult rv;
 
-  aData->Cleanup();
+  Cleanup();
 
   rv = aValue->GetDataType(&type);
   if (NS_FAILED(rv)) {
@@ -1278,45 +1278,45 @@ nsVariant::SetFromVariant(nsDiscriminatedUnion* aData, nsIVariant* aValue)
     case nsIDataType::VTYPE_WCHAR_STR:
     case nsIDataType::VTYPE_WSTRING_SIZE_IS:
       CASE__SET_FROM_VARIANT_VTYPE_PROLOGUE(VTYPE_ASTRING);
-      aData->u.mAStringValue = new nsString();
-      if (!aData->u.mAStringValue) {
+      u.mAStringValue = new nsString();
+      if (!u.mAStringValue) {
         return NS_ERROR_OUT_OF_MEMORY;
       }
-      rv = aValue->GetAsAString(*aData->u.mAStringValue);
+      rv = aValue->GetAsAString(*u.mAStringValue);
       if (NS_FAILED(rv)) {
-        delete aData->u.mAStringValue;
+        delete u.mAStringValue;
       }
       CASE__SET_FROM_VARIANT_VTYPE_EPILOGUE(VTYPE_ASTRING)
 
     case nsIDataType::VTYPE_CSTRING:
       CASE__SET_FROM_VARIANT_VTYPE_PROLOGUE(VTYPE_CSTRING);
-      aData->u.mCStringValue = new nsCString();
-      if (!aData->u.mCStringValue) {
+      u.mCStringValue = new nsCString();
+      if (!u.mCStringValue) {
         return NS_ERROR_OUT_OF_MEMORY;
       }
-      rv = aValue->GetAsACString(*aData->u.mCStringValue);
+      rv = aValue->GetAsACString(*u.mCStringValue);
       if (NS_FAILED(rv)) {
-        delete aData->u.mCStringValue;
+        delete u.mCStringValue;
       }
       CASE__SET_FROM_VARIANT_VTYPE_EPILOGUE(VTYPE_CSTRING)
 
     case nsIDataType::VTYPE_UTF8STRING:
       CASE__SET_FROM_VARIANT_VTYPE_PROLOGUE(VTYPE_UTF8STRING);
-      aData->u.mUTF8StringValue = new nsUTF8String();
-      if (!aData->u.mUTF8StringValue) {
+      u.mUTF8StringValue = new nsUTF8String();
+      if (!u.mUTF8StringValue) {
         return NS_ERROR_OUT_OF_MEMORY;
       }
-      rv = aValue->GetAsAUTF8String(*aData->u.mUTF8StringValue);
+      rv = aValue->GetAsAUTF8String(*u.mUTF8StringValue);
       if (NS_FAILED(rv)) {
-        delete aData->u.mUTF8StringValue;
+        delete u.mUTF8StringValue;
       }
       CASE__SET_FROM_VARIANT_VTYPE_EPILOGUE(VTYPE_UTF8STRING)
 
     case nsIDataType::VTYPE_CHAR_STR:
     case nsIDataType::VTYPE_STRING_SIZE_IS:
       CASE__SET_FROM_VARIANT_VTYPE_PROLOGUE(VTYPE_STRING_SIZE_IS);
-      rv = aValue->GetAsStringWithSize(&aData->u.str.mStringLength,
-                                       &aData->u.str.mStringValue);
+      rv = aValue->GetAsStringWithSize(&u.str.mStringLength,
+                                       &u.str.mStringValue);
       CASE__SET_FROM_VARIANT_VTYPE_EPILOGUE(VTYPE_STRING_SIZE_IS)
 
     case nsIDataType::VTYPE_INTERFACE:
@@ -1324,29 +1324,29 @@ nsVariant::SetFromVariant(nsDiscriminatedUnion* aData, nsIVariant* aValue)
       CASE__SET_FROM_VARIANT_VTYPE_PROLOGUE(VTYPE_INTERFACE_IS);
       // XXX This iid handling is ugly!
       nsIID* iid;
-      rv = aValue->GetAsInterface(&iid, (void**)&aData->u.iface.mInterfaceValue);
+      rv = aValue->GetAsInterface(&iid, (void**)&u.iface.mInterfaceValue);
       if (NS_SUCCEEDED(rv)) {
-        aData->u.iface.mInterfaceID = *iid;
+        u.iface.mInterfaceID = *iid;
         free((char*)iid);
       }
       CASE__SET_FROM_VARIANT_VTYPE_EPILOGUE(VTYPE_INTERFACE_IS)
 
     case nsIDataType::VTYPE_ARRAY:
       CASE__SET_FROM_VARIANT_VTYPE_PROLOGUE(VTYPE_ARRAY);
-      rv = aValue->GetAsArray(&aData->u.array.mArrayType,
-                              &aData->u.array.mArrayInterfaceID,
-                              &aData->u.array.mArrayCount,
-                              &aData->u.array.mArrayValue);
+      rv = aValue->GetAsArray(&u.array.mArrayType,
+                              &u.array.mArrayInterfaceID,
+                              &u.array.mArrayCount,
+                              &u.array.mArrayValue);
       CASE__SET_FROM_VARIANT_VTYPE_EPILOGUE(VTYPE_ARRAY)
 
     case nsIDataType::VTYPE_VOID:
-      rv = aData->SetToVoid();
+      rv = SetToVoid();
       break;
     case nsIDataType::VTYPE_EMPTY_ARRAY:
-      rv = aData->SetToEmptyArray();
+      rv = SetToEmptyArray();
       break;
     case nsIDataType::VTYPE_EMPTY:
-      rv = aData->SetToEmpty();
+      rv = SetToEmpty();
       break;
     default:
       NS_ERROR("bad type in variant!");
@@ -1636,22 +1636,21 @@ nsDiscriminatedUnion::Cleanup()
   mType = nsIDataType::VTYPE_EMPTY;
 }
 
-/* static */ void
-nsVariant::Traverse(const nsDiscriminatedUnion& aData,
-                    nsCycleCollectionTraversalCallback& aCb)
+void
+nsDiscriminatedUnion::Traverse(nsCycleCollectionTraversalCallback& aCb) const
 {
-  switch (aData.mType) {
+  switch (mType) {
     case nsIDataType::VTYPE_INTERFACE:
     case nsIDataType::VTYPE_INTERFACE_IS:
       NS_CYCLE_COLLECTION_NOTE_EDGE_NAME(aCb, "mData");
-      aCb.NoteXPCOMChild(aData.u.iface.mInterfaceValue);
+      aCb.NoteXPCOMChild(u.iface.mInterfaceValue);
       break;
     case nsIDataType::VTYPE_ARRAY:
-      switch (aData.u.array.mArrayType) {
+      switch (u.array.mArrayType) {
         case nsIDataType::VTYPE_INTERFACE:
         case nsIDataType::VTYPE_INTERFACE_IS: {
-          nsISupports** p = (nsISupports**)aData.u.array.mArrayValue;
-          for (uint32_t i = aData.u.array.mArrayCount; i > 0; ++p, --i) {
+          nsISupports** p = (nsISupports**)u.array.mArrayValue;
+          for (uint32_t i = u.array.mArrayCount; i > 0; ++p, --i) {
             NS_CYCLE_COLLECTION_NOTE_EDGE_NAME(aCb, "mData[i]");
             aCb.NoteXPCOMChild(*p);
           }
@@ -1722,11 +1721,6 @@ nsVariant::nsVariant()
 #endif
 }
 
-nsVariant::~nsVariant()
-{
-  mData.Cleanup();
-}
-
 // For all the data getters we just forward to the static (and sharable)
 // 'ConvertTo' functions.
 
@@ -1734,7 +1728,7 @@ nsVariant::~nsVariant()
 NS_IMETHODIMP
 nsVariant::GetDataType(uint16_t* aDataType)
 {
-  *aDataType = mData.mType;
+  *aDataType = mData.GetType();
   return NS_OK;
 }
 
@@ -2237,5 +2231,5 @@ nsVariant::SetFromVariant(nsIVariant* aValue)
   if (!mWritable) {
     return NS_ERROR_OBJECT_IS_IMMUTABLE;
   }
-  return nsVariant::SetFromVariant(&mData, aValue);
+  return mData.SetFromVariant(aValue);
 }

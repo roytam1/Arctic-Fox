@@ -79,7 +79,7 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(XPCVariant)
         cb.NoteJSObject(&val.toObject());
     }
 
-    nsVariant::Traverse(tmp->mData, cb);
+    tmp->mData.Traverse(cb);
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(XPCVariant)
@@ -274,7 +274,7 @@ bool XPCVariant::InitializeData(JSContext* cx)
         if (!str)
             return false;
 
-        MOZ_ASSERT(mData.mType == nsIDataType::VTYPE_EMPTY,
+        MOZ_ASSERT(mData.GetType() == nsIDataType::VTYPE_EMPTY,
                    "Why do we already have data?");
 
         size_t length = JS_GetStringLength(str);
@@ -603,7 +603,6 @@ XPCVariant::VariantDataToJS(nsIVariant* variant,
                 case nsIDataType::VTYPE_EMPTY:
                 default:
                     NS_ERROR("bad type in array!");
-                    du.Cleanup();
                     return false;
             }
 
@@ -613,7 +612,6 @@ XPCVariant::VariantDataToJS(nsIVariant* variant,
                                            conversionType, pid,
                                            du.u.array.mArrayCount, pErr);
 
-            du.Cleanup();
             return success;
         }
         case nsIDataType::VTYPE_EMPTY_ARRAY:
@@ -645,7 +643,7 @@ XPCVariant::VariantDataToJS(nsIVariant* variant,
 /* readonly attribute uint16_t dataType; */
 NS_IMETHODIMP XPCVariant::GetDataType(uint16_t* aDataType)
 {
-    *aDataType = mData.mType;
+    *aDataType = mData.GetType();
     return NS_OK;
 }
 
