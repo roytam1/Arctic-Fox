@@ -1735,13 +1735,14 @@ function HandleAppCommandEvent(evt) {
     BrowserOpenFileWindow();
     break;
   case "Print":
-    PrintUtils.print();
+    PrintUtils.print(gBrowser.selectedBrowser.contentWindowAsCPOW,
+                     gBrowser.selectedBrowser);
     break;
   case "Save":
     saveDocument(gBrowser.selectedBrowser.contentDocumentAsCPOW);
     break;
   case "SendMail":
-    MailIntegration.sendLinkForWindow(window.content);
+    MailIntegration.sendLinkForBrowser(gBrowser.selectedBrowser);
     break;
   default:
     return;
@@ -6306,9 +6307,8 @@ function warnAboutClosingWindow() {
 }
 
 var MailIntegration = {
-  sendLinkForWindow: function (aWindow) {
-    this.sendMessage(aWindow.location.href,
-                     aWindow.document.title);
+  sendLinkForBrowser: function (aBrowser) {
+    this.sendMessage(aBrowser.currentURI.spec, aBrowser.contentTitle);
   },
 
   sendMessage: function (aBody, aSubject) {
@@ -7581,6 +7581,15 @@ function focusNextFrame(event) {
   if (element.ownerDocument == document)
     focusAndSelectUrlBar();
 }
+
+function BrowserOpenNewTabOrWindow(event) {
+  if (event.shiftKey) {
+    OpenBrowserWindow();
+  } else {
+    BrowserOpenTab();
+  }
+}
+
 
 let ToolbarIconColor = {
   init: function () {
