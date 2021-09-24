@@ -138,9 +138,9 @@ ImageAccessible::DoAction(uint8_t aIndex)
 
   nsCOMPtr<nsPIDOMWindow> tmp;
   return NS_SUCCEEDED(piWindow->Open(spec, EmptyString(), EmptyString(),
-                                /* aLoadInfo = */ nullptr,
-				/* aForceNoOpener = */ false,
-                                getter_AddRefs(tmp)));
+                                     /* aLoadInfo = */ nullptr,
+				     /* aForceNoOpener = */ false,
+                                     getter_AddRefs(tmp)));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
