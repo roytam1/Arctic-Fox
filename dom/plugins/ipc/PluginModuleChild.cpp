@@ -149,7 +149,7 @@ PluginModuleChild::PluginModuleChild(bool aIsChrome)
         MOZ_ASSERT(!gChromeInstance);
         gChromeInstance = this;
     }
-    mUserAgent.SetIsVoid(true);
+
 #ifdef XP_MACOSX
     if (aIsChrome) {
       mac_plugin_interposing::child::SetUpCocoaInterposing();
@@ -731,31 +731,34 @@ PluginModuleChild::AnswerOptionalFunctionsSupported(bool *aURLRedirectNotify,
 }
 
 bool
-PluginModuleChild::AnswerNPP_ClearSiteData(const nsCString& aSite,
+PluginModuleChild::RecvNPP_ClearSiteData(const nsCString& aSite,
                                            const uint64_t& aFlags,
                                            const uint64_t& aMaxAge,
-                                           NPError* aResult)
+                                           const uint64_t& aCallbackId)
 {
-    *aResult =
+    NPError result =
         mFunctions.clearsitedata(NullableStringGet(aSite), aFlags, aMaxAge);
+    SendReturnClearSiteData(result, aCallbackId);
     return true;
 }
 
 bool
-PluginModuleChild::AnswerNPP_GetSitesWithData(InfallibleTArray<nsCString>* aResult)
+PluginModuleChild::RecvNPP_GetSitesWithData(const uint64_t& aCallbackId)
 {
     char** result = mFunctions.getsiteswithdata();
-    if (!result)
+    InfallibleTArray<nsCString> array;
+    if (!result) {
+        SendReturnSitesWithData(array, aCallbackId);
         return true;
-
+    }
     char** iterator = result;
     while (*iterator) {
-        aResult->AppendElement(*iterator);
+        array.AppendElement(*iterator);
         free(*iterator);
         ++iterator;
     }
+    SendReturnSitesWithData(array, aCallbackId);
     free(result);
-
     return true;
 }
 
@@ -2094,15 +2097,18 @@ PluginModuleChild::InitQuirksModes(const nsCString& aMimeType)
 #endif
     }
 
-#ifdef OS_WIN
     if (specialType == nsPluginHost::eSpecialType_Flash) {
+        mQuirks |= QUIRK_FLASH_RETURN_EMPTY_DOCUMENT_ORIGIN;
+#ifdef OS_WIN
         mQuirks |= QUIRK_WINLESS_TRACKPOPUP_HOOK;
         mQuirks |= QUIRK_FLASH_THROTTLE_WMUSER_EVENTS;
         mQuirks |= QUIRK_FLASH_HOOK_SETLONGPTR;
         mQuirks |= QUIRK_FLASH_HOOK_GETWINDOWINFO;
         mQuirks |= QUIRK_FLASH_FIXUP_MOUSE_CAPTURE;
+#endif
     }
 
+#ifdef OS_WIN
     // QuickTime plugin usually loaded with audio/mpeg mimetype
     NS_NAMED_LITERAL_CSTRING(quicktime, "npqtplugin");
     if (FindInReadable(quicktime, mPluginFilename)) {
