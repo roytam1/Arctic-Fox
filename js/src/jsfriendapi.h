@@ -1300,9 +1300,11 @@ class MOZ_STACK_CLASS JS_FRIEND_API(AutoStableStringChars)
     {}
     ~AutoStableStringChars();
 
+    MOZ_WARN_UNUSED_RESULT
     bool init(JSContext* cx, JSString* s);
 
     /* Like init(), but Latin1 chars are inflated to TwoByte. */
+    MOZ_WARN_UNUSED_RESULT
     bool initTwoByte(JSContext* cx, JSString* s);
 
     bool isLatin1() const { return state_ == Latin1; }
