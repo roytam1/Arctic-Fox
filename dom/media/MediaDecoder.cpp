@@ -345,7 +345,6 @@ MediaDecoder::MediaDecoder() :
   mLogicalPosition(0.0),
   mDuration(std::numeric_limits<double>::quiet_NaN()),
   mMediaSeekable(true),
-  mSameOriginMedia(false),
   mReentrantMonitor("media.decoder"),
   mIgnoreProgressData(false),
   mInfiniteStream(false),
@@ -391,7 +390,9 @@ MediaDecoder::MediaDecoder() :
   mNextState(AbstractThread::MainThread(), PLAY_STATE_PAUSED,
              "MediaDecoder::mNextState (Canonical)"),
   mLogicallySeeking(AbstractThread::MainThread(), false,
-                    "MediaDecoder::mLogicallySeeking (Canonical)")
+                    "MediaDecoder::mLogicallySeeking (Canonical)"),
+  mSameOriginMedia(AbstractThread::MainThread(), false,
+                   "MediaDecoder::mSameOriginMedia (Canonical)")
 {
   MOZ_COUNT_CTOR(MediaDecoder);
   MOZ_ASSERT(NS_IsMainThread());
@@ -511,14 +512,14 @@ nsresult MediaDecoder::InitializeStateMachine(MediaDecoder* aCloneDonor)
 
   MediaDecoder* cloneDonor = static_cast<MediaDecoder*>(aCloneDonor);
   nsresult rv = mDecoderStateMachine->Init(
-      cloneDonor ? cloneDonor->mDecoderStateMachine : nullptr);
+      cloneDonor ? cloneDonor->mDecoderStateMachine.get() : nullptr);
   NS_ENSURE_SUCCESS(rv, rv);
 
   // If some parameters got set before the state machine got created,
   // set them now
   SetStateMachineParameters();
 
-  return ScheduleStateMachine();
+  return NS_OK;
 }
 
 void MediaDecoder::SetStateMachineParameters()
@@ -540,19 +541,6 @@ void MediaDecoder::SetMinimizePrerollUntilPlaybackStarts()
   MOZ_DIAGNOSTIC_ASSERT(!mDecoderStateMachine);
 }
 
-nsresult MediaDecoder::ScheduleStateMachine()
-{
-  MOZ_ASSERT(NS_IsMainThread());
-  if (mShuttingDown)
-    return NS_OK;
-
-  MOZ_ASSERT(mDecoderStateMachine);
-  NS_ENSURE_STATE(mDecoderStateMachine);
-  ReentrantMonitorAutoEnter mon(GetReentrantMonitor());
-  mDecoderStateMachine->ScheduleStateMachineCrossThread();
-  return NS_OK;
-}
-
 nsresult MediaDecoder::Play()
 {
   MOZ_ASSERT(NS_IsMainThread());
@@ -563,7 +551,7 @@ nsresult MediaDecoder::Play()
   if (mPausedForPlaybackRateNull) {
     return NS_OK;
   }
-  ScheduleStateMachine();
+
   if (IsEnded()) {
     return Seek(0, SeekTarget::PrevSyncPoint);
   } else if (mPlayState == PLAY_STATE_LOADING) {
@@ -630,32 +618,13 @@ already_AddRefed<nsIPrincipal> MediaDecoder::GetCurrentPrincipal()
   return mResource ? mResource->GetCurrentPrincipal() : nullptr;
 }
 
-void MediaDecoder::QueueMetadata(int64_t aPublishTime,
+void MediaDecoder::QueueMetadata(const TimeUnit& aPublishTime,
                                  nsAutoPtr<MediaInfo> aInfo,
                                  nsAutoPtr<MetadataTags> aTags)
 {
   MOZ_ASSERT(OnDecodeTaskQueue());
   GetReentrantMonitor().AssertCurrentThreadIn();
   mDecoderStateMachine->QueueMetadata(aPublishTime, aInfo, aTags);
-}
-
-bool
-MediaDecoder::IsExpectingMoreData()
-{
-  ReentrantMonitorAutoEnter mon(GetReentrantMonitor());
-
-  // If there's no resource, we're probably just getting set up.
-  if (!mResource) {
-    return true;
-  }
-
-  // If we've downloaded anything, we're not waiting for anything.
-  if (mResource->IsDataCachedToEndOfResource(mDecoderPosition)) {
-    return false;
-  }
-
-  // Otherwise, we should be getting data unless the stream is suspended.
-  return !mResource->IsSuspended();
 }
 
 void MediaDecoder::MetadataLoaded(nsAutoPtr<MediaInfo> aInfo,
@@ -785,12 +754,6 @@ void MediaDecoder::UpdateSameOriginStatus(bool aSameOrigin)
   MOZ_ASSERT(NS_IsMainThread());
   ReentrantMonitorAutoEnter mon(GetReentrantMonitor());
   mSameOriginMedia = aSameOrigin;
-}
-
-bool MediaDecoder::IsSameOriginMedia()
-{
-  GetReentrantMonitor().AssertCurrentThreadIn();
-  return mSameOriginMedia;
 }
 
 bool MediaDecoder::IsSeeking() const
@@ -1031,7 +994,6 @@ void MediaDecoder::ChangeState(PlayState aState)
   }
 
   if (mPlayState == PLAY_STATE_SHUTDOWN) {
-    GetReentrantMonitor().NotifyAll();
     return;
   }
 
@@ -1045,13 +1007,9 @@ void MediaDecoder::ChangeState(PlayState aState)
     RemoveMediaTracks();
   }
 
-  ScheduleStateMachine();
-
   CancelDormantTimer();
   // Start dormant timer if necessary
   StartDormantTimer();
-
-  GetReentrantMonitor().NotifyAll();
 }
 
 void MediaDecoder::UpdateLogicalPosition(MediaDecoderEventVisibility aEventVisibility)

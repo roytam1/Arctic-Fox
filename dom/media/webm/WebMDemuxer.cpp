@@ -880,7 +880,8 @@ WebMTrackDemuxer::SetNextKeyFrameTime()
       skipSamplesQueue.PushFront(sample);
     }
     while(skipSamplesQueue.GetSize()) {
-      mSamples.PushFront(skipSamplesQueue.PopFront());
+      nsRefPtr<MediaRawData> data = skipSamplesQueue.PopFront();
+      mSamples.PushFront(data);
     }
     if (frameTime == -1) {
       frameTime = mParent->GetNextKeyframeTime();
@@ -955,17 +956,6 @@ WebMTrackDemuxer::SkipToNextRandomAccessPoint(media::TimeUnit aTimeThreshold)
     SkipFailureHolder failure(DemuxerFailureReason::END_OF_STREAM, parsed);
     return SkipAccessPointPromise::CreateAndReject(Move(failure), __func__);
   }
-}
-
-int64_t
-WebMTrackDemuxer::GetEvictionOffset(media::TimeUnit aTime)
-{
-  int64_t offset;
-  if (!mParent->GetOffsetForTime(aTime.ToNanoseconds(), &offset)) {
-    return 0;
-  }
-
-  return offset;
 }
 
 media::TimeIntervals

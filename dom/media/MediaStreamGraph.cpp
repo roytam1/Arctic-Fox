@@ -71,17 +71,6 @@ MediaStreamGraphImpl::~MediaStreamGraphImpl()
   LIFECYCLE_LOG("MediaStreamGraphImpl::~MediaStreamGraphImpl\n");
 }
 
-
-StreamTime
-MediaStreamGraphImpl::GetDesiredBufferEnd(MediaStream* aStream)
-{
-  StreamTime current = IterationEnd() - aStream->mBufferStartTime;
-  // When waking up media decoders, we need a longer safety margin, as it can
-  // take more time to get new samples. A factor of two seem to work.
-  return current +
-      2 * MillisecondsToMediaTime(std::max(AUDIO_TARGET_MS, VIDEO_TARGET_MS));
-}
-
 void
 MediaStreamGraphImpl::FinishStream(MediaStream* aStream)
 {
@@ -261,45 +250,6 @@ MediaStreamGraphImpl::ExtractPendingInput(SourceMediaStream* aStream,
   }
 }
 
-void
-MediaStreamGraphImpl::UpdateBufferSufficiencyState(SourceMediaStream* aStream)
-{
-  StreamTime desiredEnd = GetDesiredBufferEnd(aStream);
-  nsTArray<SourceMediaStream::ThreadAndRunnable> runnables;
-
-  {
-    MutexAutoLock lock(aStream->mMutex);
-    for (uint32_t i = 0; i < aStream->mUpdateTracks.Length(); ++i) {
-      SourceMediaStream::TrackData* data = &aStream->mUpdateTracks[i];
-      if (data->mCommands & SourceMediaStream::TRACK_CREATE) {
-        // This track hasn't been created yet, so we have no sufficiency
-        // data. The track will be created in the next iteration of the
-        // control loop and then we'll fire insufficiency notifications
-        // if necessary.
-        continue;
-      }
-      if (data->mCommands & SourceMediaStream::TRACK_END) {
-        // This track will end, so no point in firing not-enough-data
-        // callbacks.
-        continue;
-      }
-      StreamBuffer::Track* track = aStream->mBuffer.FindTrack(data->mID);
-      // Note that track->IsEnded() must be false, otherwise we would have
-      // removed the track from mUpdateTracks already.
-      NS_ASSERTION(!track->IsEnded(), "What is this track doing here?");
-      data->mHaveEnough = track->GetEnd() >= desiredEnd;
-      if (!data->mHaveEnough) {
-        runnables.MoveElementsFrom(data->mDispatchWhenNotEnough);
-      }
-    }
-  }
-
-  for (uint32_t i = 0; i < runnables.Length(); ++i) {
-    nsCOMPtr<nsIRunnable> r = runnables[i].mRunnable;
-    runnables[i].mTarget->Dispatch(r.forget(), AbstractThread::DontAssertDispatchSuccess);
-  }
-}
-
 StreamTime
 MediaStreamGraphImpl::GraphTimeToStreamTime(MediaStream* aStream,
                                             GraphTime aTime)
@@ -376,14 +326,6 @@ MediaStreamGraphImpl::StreamTimeToGraphTime(MediaStream* aStream,
 }
 
 GraphTime
-MediaStreamGraphImpl::GetAudioPosition(MediaStream* aStream)
-{
-  /* This is correlated to the audio clock when using an AudioCallbackDriver,
-   * and is using a system timer otherwise. */
-  return IterationEnd();
-}
-
-GraphTime
 MediaStreamGraphImpl::IterationEnd()
 {
   return CurrentDriver()->IterationEnd();
@@ -431,9 +373,8 @@ MediaStreamGraphImpl::UpdateCurrentTimeForStreams(GraphTime aPrevCurrentTime, Gr
 
       stream->AdvanceTimeVaryingValuesToCurrentTime(aNextCurrentTime,
                                                     blockedTime);
-      // Advance mBlocked last so that implementations of
-      // AdvanceTimeVaryingValuesToCurrentTime can rely on the value of
-      // mBlocked.
+      // Advance mBlocked last so that AdvanceTimeVaryingValuesToCurrentTime
+      // can rely on the value of mBlocked.
       stream->mBlocked.AdvanceCurrentTime(aNextCurrentTime);
 
       if (runningAndSuspendedPair[array] == &mStreams) {
@@ -1266,7 +1207,6 @@ MediaStreamGraphImpl::PrepareUpdatesToMainThreadState(bool aFinalUpdate)
         continue;
       }
       StreamUpdate* update = mStreamUpdates.AppendElement();
-      update->mGraphUpdateIndex = stream->mGraphUpdateIndices.GetAt(IterationEnd());
       update->mStream = stream;
       update->mNextMainThreadCurrentTime =
         GraphTimeToStreamTime(stream, IterationEnd());
@@ -1342,7 +1282,6 @@ MediaStreamGraphImpl::UpdateGraph(GraphTime aEndBlockingDecision)
   // batch corresponding to an event loop task). This isolates the performance
   // of different scripts to some extent.
   for (uint32_t i = 0; i < mFrontMessageQueue.Length(); ++i) {
-    mProcessingGraphUpdateIndex = mFrontMessageQueue[i].mGraphUpdateIndex;
     nsTArray<nsAutoPtr<ControlMessage> >& messages = mFrontMessageQueue[i].mMessages;
 
     for (uint32_t j = 0; j < messages.Length(); ++j) {
@@ -1436,10 +1375,6 @@ MediaStreamGraphImpl::Process(GraphTime aFrom, GraphTime aTo)
         }
       }
       PlayVideo(stream);
-    }
-    SourceMediaStream* is = stream->AsSourceStream();
-    if (is) {
-      UpdateBufferSufficiencyState(is);
     }
     GraphTime end;
     if (!stream->mBlocked.GetAt(aTo, &end) || end < GRAPH_TIME_MAX) {
@@ -1729,8 +1664,6 @@ MediaStreamGraphImpl::RunInStableState(bool aSourceIsMSG)
       if (mLifecycleState <= LIFECYCLE_WAITING_FOR_MAIN_THREAD_CLEANUP) {
         MessageBlock* block = mBackMessageQueue.AppendElement();
         block->mMessages.SwapElements(mCurrentTaskMessageQueue);
-        block->mGraphUpdateIndex = mNextGraphUpdateIndex;
-        ++mNextGraphUpdateIndex;
         EnsureNextIterationLocked();
       }
 
@@ -1896,7 +1829,6 @@ MediaStream::MediaStream(DOMMediaStream* aWrapper)
   : mBufferStartTime(0)
   , mExplicitBlockerCount(0)
   , mBlocked(false)
-  , mGraphUpdateIndices(0)
   , mFinished(false)
   , mNotifiedFinished(false)
   , mNotifiedBlocked(false)
@@ -1941,7 +1873,6 @@ MediaStream::SizeOfExcludingThis(MallocSizeOf aMallocSizeOf) const
   amount += mMainThreadListeners.ShallowSizeOfExcludingThis(aMallocSizeOf);
   amount += mDisabledTrackIDs.ShallowSizeOfExcludingThis(aMallocSizeOf);
   amount += mBlocked.SizeOfExcludingThis(aMallocSizeOf);
-  amount += mGraphUpdateIndices.SizeOfExcludingThis(aMallocSizeOf);
   amount += mConsumers.ShallowSizeOfExcludingThis(aMallocSizeOf);
 
   return amount;
@@ -2012,12 +1943,6 @@ void
 MediaStream::FinishOnGraphThread()
 {
   GraphImpl()->FinishStream(this);
-}
-
-int64_t
-MediaStream::GetProcessingGraphUpdateIndex()
-{
-  return GraphImpl()->GetProcessingGraphUpdateIndex();
 }
 
 StreamBuffer::Track*
@@ -2467,7 +2392,6 @@ SourceMediaStream::AddTrackInternal(TrackID aID, TrackRate aRate, StreamTime aSt
   data->mEndOfFlushedData = aStart;
   data->mCommands = TRACK_CREATE;
   data->mData = aSegment;
-  data->mHaveEnough = false;
   if (!(aFlags & ADDTRACK_QUEUED) && GraphImpl()) {
     GraphImpl()->EnsureNextIteration();
   }
@@ -2628,17 +2552,6 @@ SourceMediaStream::RemoveDirectListener(MediaStreamDirectListener* aListener)
   }
 }
 
-bool
-SourceMediaStream::HaveEnoughBuffered(TrackID aID)
-{
-  MutexAutoLock lock(mMutex);
-  TrackData *track = FindDataForTrack(aID);
-  if (track) {
-    return track->mHaveEnough;
-  }
-  return false;
-}
-
 StreamTime
 SourceMediaStream::GetEndOfAppendedData(TrackID aID)
 {
@@ -2649,28 +2562,6 @@ SourceMediaStream::GetEndOfAppendedData(TrackID aID)
   }
   NS_ERROR("Track not found");
   return 0;
-}
-
-void
-SourceMediaStream::DispatchWhenNotEnoughBuffered(TrackID aID,
-    TaskQueue* aSignalQueue, nsIRunnable* aSignalRunnable)
-{
-  MutexAutoLock lock(mMutex);
-  TrackData* data = FindDataForTrack(aID);
-  if (!data) {
-    nsCOMPtr<nsIRunnable> r = aSignalRunnable;
-    aSignalQueue->Dispatch(r.forget());
-    return;
-  }
-
-  if (data->mHaveEnough) {
-    if (data->mDispatchWhenNotEnough.IsEmpty()) {
-      data->mDispatchWhenNotEnough.AppendElement()->Init(aSignalQueue, aSignalRunnable);
-    }
-  } else {
-    nsCOMPtr<nsIRunnable> r = aSignalRunnable;
-    aSignalQueue->Dispatch(r.forget());
-  }
 }
 
 void
@@ -2920,7 +2811,6 @@ MediaStreamGraphImpl::MediaStreamGraphImpl(bool aRealtime,
                                            bool aStartWithAudioDriver,
                                            dom::AudioChannel aChannel)
   : MediaStreamGraph(aSampleRate)
-  , mProcessingGraphUpdateIndex(0)
   , mPortCount(0)
   , mNeedAnotherIteration(false)
   , mGraphDriverAsleep(false)

@@ -556,10 +556,6 @@ public:
   GraphTime StreamTimeToGraphTime(StreamTime aTime);
   bool IsFinishedOnGraphThread() { return mFinished; }
   void FinishOnGraphThread();
-  /**
-   * Identify which graph update index we are currently processing.
-   */
-  int64_t GetProcessingGraphUpdateIndex();
 
   bool HasCurrentData() { return mHasCurrentData; }
 
@@ -586,11 +582,9 @@ public:
   dom::AudioChannel AudioChannelType() const { return mAudioChannelType; }
 
 protected:
-  virtual void AdvanceTimeVaryingValuesToCurrentTime(GraphTime aCurrentTime, GraphTime aBlockedTime)
+  void AdvanceTimeVaryingValuesToCurrentTime(GraphTime aCurrentTime, GraphTime aBlockedTime)
   {
     mBufferStartTime += aBlockedTime;
-    mGraphUpdateIndices.InsertTimeAtStart(aBlockedTime);
-    mGraphUpdateIndices.AdvanceCurrentTime(aCurrentTime);
     mExplicitBlockerCount.AdvanceCurrentTime(aCurrentTime);
 
     mBuffer.ForgetUpTo(aCurrentTime - mBufferStartTime);
@@ -655,8 +649,6 @@ protected:
   // as necessary to account for that time instead) --- this avoids us having to
   // record the entire history of the stream's blocking-ness in mBlocked.
   TimeVarying<GraphTime,bool,5> mBlocked;
-  // Maps graph time to the graph update that affected this stream at that time
-  TimeVarying<GraphTime,int64_t,0> mGraphUpdateIndices;
 
   // MediaInputPorts to which this is connected
   nsTArray<MediaInputPort*> mConsumers;
@@ -813,25 +805,12 @@ public:
    */
   bool AppendToTrack(TrackID aID, MediaSegment* aSegment, MediaSegment *aRawSegment = nullptr);
   /**
-   * Returns true if the buffer currently has enough data.
-   * Returns false if there isn't enough data or if no such track exists.
-   */
-  bool HaveEnoughBuffered(TrackID aID);
-  /**
    * Get the stream time of the end of the data that has been appended so far.
    * Can be called from any thread but won't be useful if it can race with
    * an AppendToTrack call, so should probably just be called from the thread
    * that also calls AppendToTrack.
    */
   StreamTime GetEndOfAppendedData(TrackID aID);
-  /**
-   * Ensures that aSignalRunnable will be dispatched to aSignalThread
-   * when we don't have enough buffered data in the track (which could be
-   * immediately). Will dispatch the runnable immediately if the track
-   * does not exist. No op if a runnable is already present for this track.
-   */
-  void DispatchWhenNotEnoughBuffered(TrackID aID,
-      TaskQueue* aSignalQueue, nsIRunnable* aSignalRunnable);
   /**
    * Indicate that a track has ended. Do not do any more API calls
    * affecting this track.
@@ -927,11 +906,9 @@ protected:
     // Each time the track updates are flushed to the media graph thread,
     // the segment buffer is emptied.
     nsAutoPtr<MediaSegment> mData;
-    nsTArray<ThreadAndRunnable> mDispatchWhenNotEnough;
     // Each time the track updates are flushed to the media graph thread,
     // this is cleared.
     uint32_t mCommands;
-    bool mHaveEnough;
   };
 
   bool NeedsMixing();
@@ -1324,8 +1301,7 @@ public:
 
 protected:
   explicit MediaStreamGraph(TrackRate aSampleRate)
-    : mNextGraphUpdateIndex(1)
-    , mSampleRate(aSampleRate)
+    : mSampleRate(aSampleRate)
   {
     MOZ_COUNT_CTOR(MediaStreamGraph);
   }
@@ -1336,11 +1312,6 @@ protected:
 
   // Media graph thread only
   nsTArray<nsCOMPtr<nsIRunnable> > mPendingUpdateRunnables;
-
-  // Main thread only
-  // The number of updates we have sent to the media graph thread + 1.
-  // We start this at 1 just to ensure that 0 is usable as a special value.
-  int64_t mNextGraphUpdateIndex;
 
   /**
    * Sample rate at which this graph runs. For real time graphs, this is

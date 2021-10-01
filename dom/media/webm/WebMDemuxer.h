@@ -8,14 +8,13 @@
 
 #include "nsTArray.h"
 #include "MediaDataDemuxer.h"
+#include "NesteggPacketHolder.h"
 
 typedef struct nestegg nestegg;
 
 namespace mozilla {
 
-class NesteggPacketHolder;
 class WebMBufferedState;
-class WebMPacketQueue;
 
 // Queue for holding MediaRawData samples
 class MediaRawDataQueue {
@@ -32,10 +31,10 @@ class MediaRawDataQueue {
     mQueue.push_front(aItem);
   }
 
-  nsRefPtr<MediaRawData> PopFront() {
+  already_AddRefed<MediaRawData> PopFront() {
     nsRefPtr<MediaRawData> result = mQueue.front();
     mQueue.pop_front();
-    return result;
+    return result.forget();
   }
 
   void Reset() {
@@ -179,8 +178,6 @@ public:
   nsRefPtr<SkipAccessPointPromise> SkipToNextRandomAccessPoint(media::TimeUnit aTimeThreshold) override;
 
   media::TimeIntervals GetBuffered() override;
-
-  int64_t GetEvictionOffset(media::TimeUnit aTime) override;
 
   void BreakCycles() override;
 
