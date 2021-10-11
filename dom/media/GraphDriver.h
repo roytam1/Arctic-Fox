@@ -97,6 +97,11 @@ public:
     return mNextDriver || mPreviousDriver;
   }
 
+  GraphDriver* NextDriver()
+  {
+    return mNextDriver;
+  }
+
   /**
    * If we are running a real time graph, get the current time stamp to schedule
    * video frames. This has to be reimplemented by real time drivers.
@@ -120,10 +125,6 @@ public:
 
   GraphTime IterationEnd() {
     return mIterationEnd;
-  }
-
-  GraphTime StateComputedTime() {
-    return mStateComputedTime;
   }
 
   virtual void GetAudioBuffer(float** aBuffer, long& aFrames) {
@@ -150,16 +151,7 @@ public:
    */
   void SetGraphTime(GraphDriver* aPreviousDriver,
                     GraphTime aLastSwitchNextIterationStart,
-                    GraphTime aLastSwitchNextIterationEnd,
-                    GraphTime aLastSwitchNextStateComputedTime,
-                    GraphTime aLastSwitchStateComputedTime);
-
-  /**
-   * Whenever the graph has computed the time until it has all state
-   * (mStateComputedState), it calls this to indicate the new time until which
-   * we have computed state.
-   */
-  void UpdateStateComputedTime(GraphTime aStateComputedTime);
+                    GraphTime aLastSwitchNextIterationEnd);
 
   /**
    * Call this to indicate that another iteration of the control loop is
@@ -186,13 +178,12 @@ public:
   virtual bool OnThread() = 0;
 
 protected:
+  GraphTime StateComputedTime() const;
+
   // Time of the start of this graph iteration.
   GraphTime mIterationStart;
   // Time of the end of this graph iteration.
   GraphTime mIterationEnd;
-  // Time, in the future, for which blocking has been computed.
-  GraphTime mStateComputedTime;
-  GraphTime mNextStateComputedTime;
   // The MediaStreamGraphImpl that owns this driver. This has a lifetime longer
   // than the driver, and will never be null.
   MediaStreamGraphImpl* mGraphImpl;
