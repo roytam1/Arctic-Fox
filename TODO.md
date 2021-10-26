@@ -172,12 +172,8 @@
 - Bug 1202902 - 2015-07-15 - Mass replace toplevel 'let' with 'var' in preparation f
 - Bug 1179569: Remove use of decoder's monitor in ResetDecode(). r=bholley
 - Bug 1178437 - Do the dormant-enabled tracking on the main thread. 
-- Bug 1197669 - Part2 - 1. Ensure the EOS is sent to
 - Bug 912121 - 2015-09-21 Migrate major DevTools directories. 
 - 1207245 - part 3 - switch all uses of mozilla::RefPtr<T> to nsRefPtr<T>
-- Bug 1190676 - Part 12 - Fix mozCaptureStream. r=pehrsons 
-- Bug 1197316 - 2015-08-23 - Remove PR_snprintf calls in xpcom/. r=froydnj 
-- Bug 1210607 - Check for null compartment in PopulateReport
 - Bug 968923 - 2015-07-17 - part 6 - add use counters for deprecated operations; r=bz
 - Bug 1109354  (2015-06-15) - prefer Firefox default engines over profile-installed p
 - Bug 1149975 - Part 1 of 2 - Handle visibility of the login fill doo
@@ -217,8 +213,11 @@ Check with Roy Tam:
 What with LightweightThemeConsumer.jsm 
 
 Parents of:
-https://github.com/mozilla/newtab-dev/commit/af76a72464c5dd2030f8a2353640d97f27e8517a
+https://github.com/mozilla/newtab-dev/commit/567240287fa9fe6f94fb49d0675512d6aa1c162c
 
+## Breaking JS
+Bug 1182124 - Remove InternalHandle and its last use; r=bbouvier
+Bug 1181869 - Update Bindings to use normal Rooted primitives
 
 ### FIXME / TODO
 - fix devtools structure, from browser/themes/osx/devtools to browser/devtools
@@ -242,12 +241,6 @@ And why #include "nsIFrameInlines.h" in layout/style/nsStyleTransformMatrix.cpp 
 Fallible hacks:
 appendElements made fallible when not so in original FF:
 media/libstagefright/frameworks/av/media/libstagefright/MPEG4Extractor.cpp
-
-Check ALTIVEC/VMX
-- gfx/2d/Factory.cpp -> enough __ALTIVEC__ on non-Apple VMX ?
-- gfx/2d/BlurVMX.cpp
-in TenFourFOX: TENFOURFOX_VMX - VPX_VMX_ASM
-- correct ifdef for  gfx/2d/Blur.cpp
 
 ### Further ToDo which would help portability:
 
