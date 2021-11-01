@@ -3135,19 +3135,22 @@ extern JS_PUBLIC_API(JSFunction*)
 JS_NewFunction(JSContext* cx, JSNative call, unsigned nargs, unsigned flags,
                const char* name);
 
-/*
- * Create the function with the name given by the id. JSID_IS_STRING(id) must
- * be true.
- */
-extern JS_PUBLIC_API(JSFunction*)
-JS_NewFunctionById(JSContext* cx, JSNative call, unsigned nargs, unsigned flags,
-                   JS::Handle<jsid> id);
-
 namespace JS {
 
 extern JS_PUBLIC_API(JSFunction*)
-GetSelfHostedFunction(JSContext* cx, const char* selfHostedName, JS::Handle<jsid> id,
+GetSelfHostedFunction(JSContext* cx, const char* selfHostedName, HandleId id,
                       unsigned nargs);
+
+/**
+ * Create a new function based on the given JSFunctionSpec, *fs.
+ * id is the result of a successful call to
+ * `PropertySpecNameToPermanentId(cx, fs->name, &id)`.
+ *
+ * Unlike JS_DefineFunctions, this does not treat fs as an array.
+ * *fs must not be JS_FS_END.
+ */
+extern JS_PUBLIC_API(JSFunction*)
+NewFunctionFromSpec(JSContext* cx, const JSFunctionSpec* fs, HandleId id);
 
 } /* namespace JS */
 
@@ -5053,15 +5056,16 @@ class MOZ_STACK_CLASS JS_PUBLIC_API(AutoFilename)
 };
 
 /*
- * Return the current filename and line number of the most currently running
- * frame. Returns true if a scripted frame was found, false otherwise.
+ * Return the current filename, line number and column number of the most
+ * currently running frame. Returns true if a scripted frame was found, false
+ * otherwise.
  *
  * If a the embedding has hidden the scripted caller for the topmost activation
  * record, this will also return false.
  */
 extern JS_PUBLIC_API(bool)
 DescribeScriptedCaller(JSContext* cx, AutoFilename* filename = nullptr,
-                       unsigned* lineno = nullptr);
+                       unsigned* lineno = nullptr, unsigned* column = nullptr);
 
 extern JS_PUBLIC_API(JSObject*)
 GetScriptedCallerGlobal(JSContext* cx);
