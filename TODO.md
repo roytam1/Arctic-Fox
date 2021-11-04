@@ -100,7 +100,13 @@
 - Bug 1214508: SharedStubs - Part 1: Move the getprop stubs in to share
 - Bug 1158111 - "Add caching and control updating tab offset values in 
 - Bug 1089695 - Fixing wrong dependency in Places shutdown. r=mak 
-- Bug 1232269 - 2015-12-22 - Use the correct receiver when calling an own getter or 
+- Bug 1232269 - 2015-12-22 - Use the correct receiver when calling an own getter or
+- Bug 1257650 - 2016-03-19 Skip Security checks if triggeringPrincipal is System
+- Bug 1232903 - Skip Security checks if triggeringPrincipal is SystemPr
+- Bug 1226909 multipart AsyncOpen2 
+- Bug 1213646: Allow URI_IS_UI_RESOURCE and safe about: URIs when SEC_A
+- Bug 1212129 - (2015-10-22 partialy applied) e10s support for disabling site notifications. r=wchen
+- Bug 1182571 - 2051-10-19 Fix nsILoadInfo->GetContentPolicyType API to be less am
 - Bug 1170958 - 2015-09-30 - Allow MediaInputPort to lock to a specific input track
 - Bug 1205533 - 2015-09-18 - Fix and disallow warnings in gfx/qcms/
 - Bug 1191148 - Don't count fullscreen request handled if we don't chanyesy
@@ -117,12 +123,10 @@
 - Bug 1178961 - Restore the std::string fix from bug 1167230 r=BenWa 
 - Bug 1169268 - Don't crash when pasting files. r=ndeakin
 - Bug 1202085 2015-10-26 - Part 0 to 6
-- Bug 930414 - 22 parts
 - Bug 1188347  - 5 parts
 - Bug 1188643 2015-09-30 - Buffer more audio in audio capture mode to avoid glitche
 - Bug 1205870 - 2015-09-22 - Make sure all possible unboxed array inline capacities 
 - Bug 1204722 - 2015-09-22 - Make sure that unboxed arrays created from literals are
-- Bug 1072313 - 2015-09-21 - Never call TextureClient::KeepUntilFullDeallocation off
 - https://bugzilla.mozilla.org/show_bug.cgi?id=1201309
 - https://bugzilla.mozilla.org/show_bug.cgi?id=1201314
 - Bug 1189200 - 2015-08-31 -  Only clear pending fullscreen requests in inclusive des
@@ -168,7 +172,6 @@
 - Bug 1200099. Add a test that captured cross-origin video
 - Bug 1175523 - Update most (but not all) tests to use elem.srcObject o
 --Bug 1194422 - Expose census traversals to SpiderMonkey embedders; r=s
-- Bug 1189490 - Part 2: Stop using mozilla::LinkedList for the alloca
 - Bug 1148505 - 2015-08-28 [Warning: breaks history] -  remove cpow usage from back-forward menu by using sessio
 - Bug 830801 - Part 1. Set NOMINMAX define as default. r=mshal 
 - Bug 1202902 - 2015-07-15 - Mass replace toplevel 'let' with 'var' in preparation f
@@ -218,6 +221,13 @@ Parents of:
 https://github.com/mozilla/newtab-dev/commit/567240287fa9fe6f94fb49d0675512d6aa1c162c
 
 ## Breaking JS
+- Bug 1054756, part 5 - Remove Class::convert. 
+- Bug 1054756, part 4 - Remove BaseProxyHandler::defaultValue. r=jandem
+- Bug 1054756, part 3 - Implement Symbol.toPrimitive. Replace existing 
+- Bug 1088214 - Remove JSCLASS_IMPLEMENTS_BARRIERS now this is implemen
+- Bug 930414 - 22 parts
+Bug 1195866 - Make allocations log report whether an allocation was i
+- Bug 1189490 - Part 2: Stop using mozilla::LinkedList for the alloca
 Bug 1182124 - Remove InternalHandle and its last use; r=bbouvier
 Bug 1181869 - Update Bindings to use normal Rooted primitives
 

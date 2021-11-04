@@ -60,6 +60,7 @@
 #include "frontend/Parser.h"
 #include "gc/GCInternals.h"
 #include "jit/arm/Simulator-arm.h"
+#include "jit/InlinableNatives.h"
 #include "jit/Ion.h"
 #include "jit/JitcodeMap.h"
 #include "jit/OptimizationTracking.h"
@@ -4818,11 +4819,12 @@ static const JSFunctionSpecWithHelp fuzzing_unsafe_functions[] = {
 "  arguments[0] (of the call to nestedShell) will be argv[1], arguments[1] will\n"
 "  be argv[2], etc."),
 
-    JS_FN_HELP("assertFloat32", testingFunc_assertFloat32, 2, 0,
+    JS_INLINABLE_FN_HELP("assertFloat32", testingFunc_assertFloat32, 2, 0, TestAssertFloat32,
 "assertFloat32(value, isFloat32)",
 "  In IonMonkey only, asserts that value has (resp. hasn't) the MIRType_Float32 if isFloat32 is true (resp. false)."),
 
-    JS_FN_HELP("assertRecoveredOnBailout", testingFunc_assertRecoveredOnBailout, 2, 0,
+    JS_INLINABLE_FN_HELP("assertRecoveredOnBailout", testingFunc_assertRecoveredOnBailout, 2, 0,
+TestAssertRecoveredOnBailout,
 "assertRecoveredOnBailout(var)",
 "  In IonMonkey only, asserts that variable has RecoveredOnBailout flag."),
 
@@ -5157,7 +5159,7 @@ dom_doFoo(JSContext* cx, HandleObject obj, void* self, const JSJitMethodCallArgs
 
 static const JSJitInfo dom_x_getterinfo = {
     { (JSJitGetterOp)dom_get_x },
-    0,        /* protoID */
+    { 0 },    /* protoID */
     0,        /* depth */
     JSJitInfo::AliasNone, /* aliasSet */
     JSJitInfo::Getter,
@@ -5173,7 +5175,7 @@ static const JSJitInfo dom_x_getterinfo = {
 
 static const JSJitInfo dom_x_setterinfo = {
     { (JSJitGetterOp)dom_set_x },
-    0,        /* protoID */
+    { 0 },    /* protoID */
     0,        /* depth */
     JSJitInfo::Setter,
     JSJitInfo::AliasEverything, /* aliasSet */
@@ -5189,7 +5191,7 @@ static const JSJitInfo dom_x_setterinfo = {
 
 static const JSJitInfo doFoo_methodinfo = {
     { (JSJitGetterOp)dom_doFoo },
-    0,        /* protoID */
+    { 0 },    /* protoID */
     0,        /* depth */
     JSJitInfo::Method,
     JSJitInfo::AliasEverything, /* aliasSet */
