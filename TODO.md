@@ -55,6 +55,8 @@
 - Bug 1245024 - 2016-06-09 - Implement Object.getOwnPropertyDescriptors. r=efaust,bz (check https://forum.manjaro.org/ still works after applying)
 - Bug 1266391 - 2016-04-21 Introduce an enum class mozilla::unicode::Script, and u
 - Bug 1209100 - 2016-03-21 - Back out bug 1165185 on inbound.
+- Bug 1296851 - 2016-10-27 Always allow SetPrototype with the same value as the cu
+- Bug 1263778 - 2016-03-19 Rename a bunch of low-level [[Prototype]] access method
 - Bug 1255511 - 2016-03-15 Skip beforeunload prompts once nsIAppStartup shuttingDo
 - Bug 1258905 - 2016-03-28 Remove a bunch of dead IPC code.
 - Bug 1252262 - 2016-03-08 - Don't combine the client offset into the outer rect for
@@ -129,6 +131,7 @@
 - Bug 1204722 - 2015-09-22 - Make sure that unboxed arrays created from literals are
 - https://bugzilla.mozilla.org/show_bug.cgi?id=1201309
 - https://bugzilla.mozilla.org/show_bug.cgi?id=1201314
+- Bug 895274 - 1 to 270 parts
 - Bug 1189200 - 2015-08-31 -  Only clear pending fullscreen requests in inclusive des
 -  Remove the backend flag to TextureClient::CreateForDrawing. (bug 1183910 part 9, r=mattwoodrow)
 - Bug 1167409 - for parts
@@ -168,23 +171,17 @@
 - Bug 1214163 - 2015-10-15 - Clean up SetPropertyIC::update. r=efaust
 - Bug 1051052 - Made mid an outparam in JsepSession::AddLocalIceCandida
 - Bug 1204872 - 2015-09
-- Bug 1198861 - (1 of 2) Improve aliasing information and type barrier handling 
 - Bug 1200099. Add a test that captured cross-origin video
 - Bug 1175523 - Update most (but not all) tests to use elem.srcObject o
 --Bug 1194422 - Expose census traversals to SpiderMonkey embedders; r=s
 - Bug 1148505 - 2015-08-28 [Warning: breaks history] -  remove cpow usage from back-forward menu by using sessio
-- Bug 830801 - Part 1. Set NOMINMAX define as default. r=mshal 
 - Bug 1202902 - 2015-07-15 - Mass replace toplevel 'let' with 'var' in preparation f
-- Bug 1179569: Remove use of decoder's monitor in ResetDecode(). r=bholley
-- Bug 1178437 - Do the dormant-enabled tracking on the main thread. 
 - Bug 912121 - 2015-09-21 Migrate major DevTools directories. 
 - 1207245 - part 3 - switch all uses of mozilla::RefPtr<T> to nsRefPtr<T>
 - Bug 968923 - 2015-07-17 - part 6 - add use counters for deprecated operations; r=bz
 - Bug 1109354  (2015-06-15) - prefer Firefox default engines over profile-installed p
 - Bug 1149975 - Part 1 of 2 - Handle visibility of the login fill doo
 - Bug 1242578
-- 1175394 part 2 - Rename normal/strict arguments to mapped/unmappe
-- Bug 1170081 - Add a tag to run only mochitests that use HTML
 
 
 impacting download and shutdown:
@@ -221,6 +218,13 @@ Parents of:
 https://github.com/mozilla/newtab-dev/commit/567240287fa9fe6f94fb49d0675512d6aa1c162c
 
 ## Breaking JS
+-  Bug 603201 - Enable primitive receivers in [[Get]]. r=jorendorff 
+- Bug 1191570 - Use ToPropertyKey everywhere ES6 says to use it. r=Wald
+- Bug 1208747 - Move most of Stopwatch-related code to XPCOM-land (JSAP
+- Bug 1206290 - Part 1: Implement a JS::ubi::PostOrder depth first trav
+- Bug 1187062 - Part 2: Implement a concrete JS::ubi::StackFrame clas
+-  Bug 1187062 - Part 0: Make js::Debugger::getObjectAllocationSite retu
+- 1175394 part 2 - Rename normal/strict arguments to mapped/unmappe
 - Bug 1054756, part 5 - Remove Class::convert. 
 - Bug 1054756, part 4 - Remove BaseProxyHandler::defaultValue. r=jandem
 - Bug 1054756, part 3 - Implement Symbol.toPrimitive. Replace existing 
@@ -240,9 +244,6 @@ Specifically check for duplicates:
 Shell Service not working? present but fails.
 Check TelemetryEnvironment.jsm _isDefaultBrowser
 
-
-Analyze all:
-https://bugzilla.mozilla.org/show_bug.cgi?id=1139700
 
 Remove hack of parserequestcontenttype in nsNetUtil.cpp
 
@@ -267,9 +268,6 @@ media/libstagefright/frameworks/av/media/libstagefright/MPEG4Extractor.cpp
 - move SharedThreadPool from domi/media to xpcom/threads
 - complete 1487964 port
 - check bugs: bug 1275755, bug 1352874, bug 1440824 as prerequisites for Bug 529808
-
-- Bug 1172609 - 8 part ICU update
-
 
 
 ### Further Further ToDo:
