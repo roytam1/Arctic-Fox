@@ -16,39 +16,14 @@
 
 #include "mozilla/RefPtr.h"
 #include "mozilla/DebugOnly.h"
+#include "mozilla/gfx/CriticalSection.h"
 
 namespace mozilla {
 namespace gfx {
 
 class Job;
 class PosixCondVar;
-
-class Mutex {
-public:
-  Mutex() {
-    DebugOnly<int> err = pthread_mutex_init(&mMutex, nullptr);
-    MOZ_ASSERT(!err);
-  }
-
-  ~Mutex() {
-    DebugOnly<int> err = pthread_mutex_destroy(&mMutex);
-    MOZ_ASSERT(!err);
-  }
-
-  void Lock() {
-    DebugOnly<int> err = pthread_mutex_lock(&mMutex);
-    MOZ_ASSERT(!err);
-  }
-
-  void Unlock() {
-    DebugOnly<int> err = pthread_mutex_unlock(&mMutex);
-    MOZ_ASSERT(!err);
-  }
-
-protected:
-  pthread_mutex_t mMutex;
-  friend class PosixCondVar;
-};
+class WorkerThread;
 
 // posix platforms only!
 class PosixCondVar {
@@ -63,7 +38,7 @@ public:
     MOZ_ASSERT(!err);
   }
 
-  void Wait(Mutex* aMutex) {
+  void Wait(CriticalSection* aMutex) {
     DebugOnly<int> err = pthread_cond_wait(&mCond, &aMutex->mMutex);
     MOZ_ASSERT(!err);
   }
@@ -122,34 +97,13 @@ public:
 protected:
 
   std::list<Job*> mJobs;
-  Mutex mMutex;
+  CriticalSection mMutex;
   PosixCondVar mAvailableCondvar;
   PosixCondVar mShutdownCondvar;
   int32_t mThreadsCount;
   bool mShuttingDown;
 
   friend class WorkerThread;
-};
-
-/// Worker thread that continuously dequeues Jobs from a MultiThreadedJobQueue
-/// and process them.
-///
-/// The public interface of this class must remain identical to its equivalent
-/// in JobScheduler_win32.h
-class WorkerThread {
-public:
-  explicit WorkerThread(MultiThreadedJobQueue* aJobQueue);
-
-  ~WorkerThread();
-
-  void Run();
-
-  MultiThreadedJobQueue* GetJobQueue() { return mQueue; }
-protected:
-  void SetName(const char* name);
-
-  MultiThreadedJobQueue* mQueue;
-  pthread_t mThread;
 };
 
 /// An object that a thread can synchronously wait on.
@@ -173,7 +127,7 @@ public:
   void Set();
 
 protected:
-  Mutex mMutex;
+  CriticalSection mMutex;
   PosixCondVar mCond;
   bool mIsSet;
 };

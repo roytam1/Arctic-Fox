@@ -11,6 +11,54 @@ using namespace std;
 namespace mozilla {
 namespace gfx {
 
+void* ThreadCallback(void* threadData);
+
+class WorkerThreadPosix : public WorkerThread {
+public:
+  explicit WorkerThreadPosix(MultiThreadedJobQueue* aJobQueue)
+  : WorkerThread(aJobQueue)
+  {
+    pthread_create(&mThread, nullptr, ThreadCallback, static_cast<WorkerThread*>(this));
+  }
+
+  ~WorkerThreadPosix()
+  {
+    pthread_join(mThread, nullptr);
+  }
+
+  virtual void SetName(const char*) override
+  {
+// XXX - temporarily disabled, see bug 1209039
+//
+//    // Call this from the thread itself because of Mac.
+//#ifdef XP_MACOSX
+//    pthread_setname_np(aName);
+//#elif defined(__DragonFly__) || defined(__FreeBSD__) || defined(__OpenBSD__)
+//    pthread_set_name_np(mThread, aName);
+//#elif defined(__NetBSD__)
+//    pthread_setname_np(mThread, "%s", (void*)aName);
+//#else
+//    pthread_setname_np(mThread, aName);
+//#endif
+  }
+
+protected:
+  pthread_t mThread;
+};
+
+void* ThreadCallback(void* threadData)
+{
+  WorkerThread* thread = static_cast<WorkerThread*>(threadData);
+  thread->Run();
+  return nullptr;
+}
+
+WorkerThread*
+WorkerThread::Create(MultiThreadedJobQueue* aJobQueue)
+{
+  return new WorkerThreadPosix(aJobQueue);
+}
+
 MultiThreadedJobQueue::MultiThreadedJobQueue()
 : mThreadsCount(0)
 , mShuttingDown(false)
@@ -31,7 +79,7 @@ bool
 MultiThreadedJobQueue::PopJob(Job*& aOutJobs, AccessType aAccess)
 {
   for (;;) {
-    MutexAutoLock lock(&mMutex);
+    CriticalSectionAutoEnter lock(&mMutex);
 
     while (aAccess == BLOCKING && !mShuttingDown && mJobs.empty()) {
       mAvailableCondvar.Wait(&mMutex);
@@ -62,7 +110,7 @@ void
 MultiThreadedJobQueue::SubmitJob(Job* aJobs)
 {
   MOZ_ASSERT(aJobs);
-  MutexAutoLock lock(&mMutex);
+  CriticalSectionAutoEnter lock(&mMutex);
   mJobs.push_back(aJobs);
   mAvailableCondvar.Broadcast();
 }
@@ -70,21 +118,21 @@ MultiThreadedJobQueue::SubmitJob(Job* aJobs)
 size_t
 MultiThreadedJobQueue::NumJobs()
 {
-  MutexAutoLock lock(&mMutex);
+  CriticalSectionAutoEnter lock(&mMutex);
   return mJobs.size();
 }
 
 bool
 MultiThreadedJobQueue::IsEmpty()
 {
-  MutexAutoLock lock(&mMutex);
+  CriticalSectionAutoEnter lock(&mMutex);
   return mJobs.empty();
 }
 
 void
 MultiThreadedJobQueue::ShutDown()
 {
-  MutexAutoLock lock(&mMutex);
+  CriticalSectionAutoEnter lock(&mMutex);
   mShuttingDown = true;
   while (mThreadsCount) {
     mAvailableCondvar.Broadcast();
@@ -101,66 +149,10 @@ MultiThreadedJobQueue::RegisterThread()
 void
 MultiThreadedJobQueue::UnregisterThread()
 {
-  MutexAutoLock lock(&mMutex);
+  CriticalSectionAutoEnter lock(&mMutex);
   mThreadsCount -= 1;
   if (mThreadsCount == 0) {
     mShutdownCondvar.Broadcast();
-  }
-}
-
-void* ThreadCallback(void* threadData)
-{
-  WorkerThread* thread = (WorkerThread*)threadData;
-  thread->Run();
-  return nullptr;
-}
-
-WorkerThread::WorkerThread(MultiThreadedJobQueue* aJobQueue)
-: mQueue(aJobQueue)
-{
-  aJobQueue->RegisterThread();
-  pthread_create(&mThread, nullptr, ThreadCallback, this);
-}
-
-WorkerThread::~WorkerThread()
-{
-  pthread_join(mThread, nullptr);
-}
-
-void
-WorkerThread::SetName(const char* aName)
-{
-  // Call this from the thread itself because of Mac.
-#ifdef XP_MACOSX
-  pthread_setname_np(aName);
-#elif defined(__DragonFly__) || defined(__FreeBSD__) || defined(__OpenBSD__)
-  pthread_set_name_np(mThread, aName);
-#elif defined(__NetBSD__)
-  pthread_setname_np(mThread, "%s", (void*)aName);
-#else
-  pthread_setname_np(mThread, aName);
-#endif
-}
-
-void
-WorkerThread::Run()
-{
-  SetName("gfx worker");
-
-  for (;;) {
-    Job* commands = nullptr;
-    if (!mQueue->WaitForJob(commands)) {
-      mQueue->UnregisterThread();
-      return;
-    }
-
-    JobStatus status = JobScheduler::ProcessJob(commands);
-
-    if (status == JobStatus::Error) {
-      // Don't try to handle errors for now, but that's open to discussions.
-      // I expect errors to be mostly OOM issues.
-      MOZ_CRASH();
-    }
   }
 }
 
@@ -174,14 +166,14 @@ EventObject::~EventObject()
 bool
 EventObject::Peak()
 {
-  MutexAutoLock lock(&mMutex);
+  CriticalSectionAutoEnter lock(&mMutex);
   return mIsSet;
 }
 
 void
 EventObject::Set()
 {
-  MutexAutoLock lock(&mMutex);
+  CriticalSectionAutoEnter lock(&mMutex);
   if (!mIsSet) {
     mIsSet = true;
     mCond.Broadcast();
@@ -191,7 +183,7 @@ EventObject::Set()
 void
 EventObject::Wait()
 {
-  MutexAutoLock lock(&mMutex);
+  CriticalSectionAutoEnter lock(&mMutex);
   if (mIsSet) {
     return;
   }

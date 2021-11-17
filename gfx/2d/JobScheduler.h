@@ -15,11 +15,14 @@
 #include "mozilla/gfx/JobScheduler_posix.h"
 #endif
 
+#include <vector>
+
 namespace mozilla {
 namespace gfx {
 
 class MultiThreadedJobQueue;
 class SyncObject;
+class WorkerThread;
 
 class JobScheduler {
 public:
@@ -106,9 +109,16 @@ public:
   WorkerThread* GetWorkerThread() { return mPinToThread; }
 
 protected:
+  // An intrusive linked list of tasks waiting for a sync object to enter the
+  // signaled state. When the task is not waiting for a sync object, mNextWaitingJob
+  // should be null. This is only accessed from the thread that owns the task.
+  Job* mNextWaitingJob;
+
   RefPtr<SyncObject> mStartSync;
   RefPtr<SyncObject> mCompletionSync;
   WorkerThread* mPinToThread;
+
+  friend class SyncObject;
 };
 
 class EventObject;
@@ -202,9 +212,8 @@ private:
 
   void SubmitWaitingJobs();
 
-  std::vector<Job*> mWaitingJobs;
-  Mutex mMutex; // for concurrent access to mWaintingJobs
   Atomic<int32_t> mSignals;
+  Atomic<Job*> mFirstWaitingJob;
 
 #ifdef DEBUG
   uint32_t mNumPrerequisites;
@@ -215,15 +224,25 @@ private:
   friend class JobScheduler;
 };
 
+/// Base class for worker threads.
+class WorkerThread
+{
+public:
+  static WorkerThread* Create(MultiThreadedJobQueue* aJobQueue);
 
-/// RAII helper.
-struct MutexAutoLock {
-    MutexAutoLock(Mutex* aMutex) : mMutex(aMutex) { mMutex->Lock(); }
-    ~MutexAutoLock() { mMutex->Unlock(); }
+  virtual ~WorkerThread() {}
+
+  void Run();
+
+  MultiThreadedJobQueue* GetJobQueue() { return mQueue; }
+
 protected:
-    Mutex* mMutex;
-};
+  explicit WorkerThread(MultiThreadedJobQueue* aJobQueue);
 
+  virtual void SetName(const char* aName) {}
+
+  MultiThreadedJobQueue* mQueue;
+};
 
 } // namespace
 } // namespace

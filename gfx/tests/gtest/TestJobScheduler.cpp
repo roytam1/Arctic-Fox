@@ -3,15 +3,16 @@
  * http://creativecommons.org/publicdomain/zero/1.0/
  */
 
-#ifndef WIN32
-
 #include "gtest/gtest.h"
 #include "gmock/gmock.h"
 
 #include "mozilla/gfx/JobScheduler.h"
 
+#ifndef WIN32
 #include <pthread.h>
 #include <sched.h>
+#endif
+
 #include <stdlib.h>
 #include <time.h>
 
@@ -24,15 +25,17 @@ using namespace mozilla;
 // things more apparent (if any).
 void MaybeYieldThread()
 {
+#ifndef WIN32
   if (rand() % 5 == 0) {
     sched_yield();
   }
+#endif
 }
 
 /// Used by the TestCommand to check that tasks are processed in the right order.
 struct SanityChecker {
   std::vector<uint64_t> mAdvancements;
-  mozilla::gfx::Mutex mMutex;
+  mozilla::gfx::CriticalSection mSection;
 
   explicit SanityChecker(uint64_t aNumCmdBuffers)
   {
@@ -44,7 +47,7 @@ struct SanityChecker {
   virtual void Check(uint64_t aJobId, uint64_t aCmdId)
   {
     MaybeYieldThread();
-    MutexAutoLock lock(&mMutex);
+    CriticalSectionAutoEnter lock(&mSection);
     ASSERT_EQ(mAdvancements[aJobId], aCmdId-1);
     mAdvancements[aJobId] = aCmdId;
   }
@@ -242,5 +245,3 @@ TEST(Moz2D, JobScheduler_Chain) {
     }
   }
 }
-
-#endif
