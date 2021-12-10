@@ -35,7 +35,7 @@
 #include "nsCycleCollectionNoteRootCallback.h"
 #include "nsCycleCollector.h"
 #include "nsScriptLoader.h"
-#include "jsfriendapi.h"
+#include "jsapi.h"
 #include "jsprf.h"
 #include "js/MemoryMetrics.h"
 #include "mozilla/dom/GeneratedAtomList.h"
@@ -2261,6 +2261,10 @@ ReportCompartmentStats(const JS::CompartmentStats& cStats,
         cStats.regexpCompartment,
         "The regexp compartment and regexp data.");
 
+    ZCREPORT_BYTES(cJSPathPrefix + NS_LITERAL_CSTRING("saved-stacks-set"),
+        cStats.savedStacksSet,
+        "The saved stacks set.");
+
     if (sundriesGCHeap > 0) {
         // We deliberately don't use ZCREPORT_GC_BYTES here.
         REPORT_GC_BYTES(cJSPathPrefix + NS_LITERAL_CSTRING("sundries/gc-heap"),
@@ -2453,9 +2457,8 @@ ReportJSRuntimeExplicitTreeStats(const JS::RuntimeStats& rtStats,
         "Memory being used by the GC's nursery.");
 
     RREPORT_BYTES(rtPath + NS_LITERAL_CSTRING("runtime/gc/nursery-malloced-buffers"),
-        KIND_NONHEAP, rtStats.runtime.gc.nurseryMallocedBuffers,
-        "Out-of-line slots and elements belonging to objects in the "
-        "nursery.");
+        KIND_HEAP, rtStats.runtime.gc.nurseryMallocedBuffers,
+        "Out-of-line slots and elements belonging to objects in the nursery.");
 
     RREPORT_BYTES(rtPath + NS_LITERAL_CSTRING("runtime/gc/store-buffer/vals"),
         KIND_HEAP, rtStats.runtime.gc.storeBufferVals,
@@ -2501,7 +2504,7 @@ ReportJSRuntimeExplicitTreeStats(const JS::RuntimeStats& rtStats,
 
     REPORT_BYTES(rtPath2 + NS_LITERAL_CSTRING("runtime/gc/nursery-decommitted"),
         KIND_NONHEAP, rtStats.runtime.gc.nurseryDecommitted,
-        "Memory allocated to the GC's nursery this is decommitted, i.e. it takes up "
+        "Memory allocated to the GC's nursery that is decommitted, i.e. it takes up "
         "address space but no physical memory or swap space.");
 
     REPORT_GC_BYTES(rtPath + NS_LITERAL_CSTRING("gc-heap/unused-chunks"),
@@ -3569,7 +3572,10 @@ XPCJSRuntime::BeforeProcessTask(bool aMightBlock)
     // Start the slow script timer.
     mSlowScriptCheckpoint = mozilla::TimeStamp::NowLoRes();
     mSlowScriptSecondHalf = false;
-    js::ResetStopwatches(Get()->Runtime());
+
+    // As we may be entering a nested event loop, we need to
+    // cancel any ongoing performance measurement.
+    js::ResetPerformanceMonitoring(Get()->Runtime());
 
     // Push a null JSContext so that we don't see any script during
     // event processing.
@@ -3590,6 +3596,10 @@ XPCJSRuntime::AfterProcessTask(uint32_t aNewRecursionDepth)
     nsJSContext::MaybePokeCC();
 
     CycleCollectedJSRuntime::AfterProcessTask(aNewRecursionDepth);
+
+    // Now that we are certain that the event is complete,
+    // we can flush any ongoing performance measurement.
+    js::FlushPerformanceMonitoring(Get()->Runtime());
 
     PopNullJSContext();
 }
