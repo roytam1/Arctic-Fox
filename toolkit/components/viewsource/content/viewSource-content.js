@@ -44,11 +44,11 @@ let ViewSourceContent = {
   messages: [
     "ViewSource:LoadSource",
     "ViewSource:LoadSourceDeprecated",
+    "ViewSource:LoadSourceWithSelection",
     "ViewSource:GoToLine",
     "ViewSource:ToggleWrapping",
     "ViewSource:ToggleSyntaxHighlighting",
     "ViewSource:SetCharacterSet",
-    "ViewSource:ScheduleDrawSelection",
   ],
 
   /**
@@ -135,6 +135,9 @@ let ViewSourceContent = {
         this.viewSourceDeprecated(data.URL, objects.pageDescriptor, data.lineNumber,
                                   data.forcedCharSet);
         break;
+      case "ViewSource:LoadSourceWithSelection":
+        this.viewSourceWithSelection(data.URL, data.drawSelection, data.baseURI);
+        break;
       case "ViewSource:GoToLine":
         this.goToLine(data.lineNumber);
         break;
@@ -146,9 +149,6 @@ let ViewSourceContent = {
         break;
       case "ViewSource:SetCharacterSet":
         this.setCharacterSet(data.charset, data.doPageLoad);
-        break;
-      case "ViewSource:ScheduleDrawSelection":
-        this.scheduleDrawSelection();
         break;
     }
   },
@@ -672,20 +672,23 @@ let ViewSourceContent = {
 
   /**
    * Toggles the "wrap" class on the document body, which sets whether
-   * or not long lines are wrapped.
+   * or not long lines are wrapped.  Notifies parent to update the pref.
    */
   toggleWrapping() {
     let body = content.document.body;
-    body.classList.toggle("wrap");
+    let state = body.classList.toggle("wrap");
+    sendAsyncMessage("ViewSource:StoreWrapping", { state });
   },
 
   /**
    * Toggles the "highlight" class on the document body, which sets whether
-   * or not syntax highlighting is displayed.
+   * or not syntax highlighting is displayed.  Notifies parent to update the
+   * pref.
    */
   toggleSyntaxHighlighting() {
     let body = content.document.body;
-    body.classList.toggle("highlight");
+    let state = body.classList.toggle("highlight");
+    sendAsyncMessage("ViewSource:StoreSyntaxHighlighting", { state });
   },
 
   /**
@@ -757,6 +760,28 @@ let ViewSourceContent = {
   },
 
   /**
+   * Loads a view source selection showing the given view-source url and
+   * highlight the selection.
+   *
+   * @param uri view-source uri to show
+   * @param drawSelection true to highlight the selection
+   * @param baseURI base URI of the original document
+   */
+  viewSourceWithSelection(uri, drawSelection, baseURI)
+  {
+    this.needsDrawSelection = drawSelection;
+
+    // all our content is held by the data:URI and URIs are internally stored as utf-8 (see nsIURI.idl)
+    let loadFlags = Ci.nsIWebNavigation.LOAD_FLAGS_NONE;
+    let referrerPolicy = Ci.nsIHttpChannel.REFERRER_POLICY_DEFAULT;
+    let webNav = docShell.QueryInterface(Ci.nsIWebNavigation);
+    webNav.loadURIWithOptions(uri, loadFlags,
+                              null, referrerPolicy,  // referrer
+                              null, null,  // postData, headers
+                              Services.io.newURI(baseURI, null, null));
+  },
+
+  /**
    * nsISelectionListener
    */
 
@@ -773,15 +798,6 @@ let ViewSourceContent = {
     }
 
     this.updateStatusTask.arm();
-  },
-
-  /**
-   * Chrome has requested that we draw a selection once the content loads.
-   * We set a flag, and wait for the load event, where drawSelection() will be
-   * called to do the real work.
-   */
-  scheduleDrawSelection() {
-    this.needsDrawSelection = true;
   },
 
   /**

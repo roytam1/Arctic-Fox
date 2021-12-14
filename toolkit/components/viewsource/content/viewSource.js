@@ -131,6 +131,12 @@ ViewSourceChrome.prototype = {
       case "ViewSource:GoToLine:Failed":
         this.onGoToLineFailed();
         break;
+      case "ViewSource:StoreWrapping":
+        this.storeWrapping(data.state);
+        break;
+      case "ViewSource:StoreSyntaxHighlighting":
+        this.storeSyntaxHighlighting(data.state);
+        break;
       // End messages from super class
       case "ViewSource:SourceLoaded":
         this.onSourceLoaded();
@@ -299,7 +305,11 @@ ViewSourceChrome.prototype = {
     // We're using the modern API, which allows us to view the
     // source of documents from out of process browsers.
     let args = window.arguments[0];
-    this.loadViewSource(args);
+
+    // viewPartialSource.js will take care of loading the content in partial mode.
+    if (!args.partial) {
+      this.loadViewSource(args);
+    }
   },
 
   /**
@@ -316,12 +326,6 @@ ViewSourceChrome.prototype = {
     //    arg[2] - Page descriptor used to load content from the cache.
     //    arg[3] - Line number to go to.
     //    arg[4] - Whether charset was forced by the user
-
-    if (aArguments[3] == "selection" ||
-        aArguments[3] == "mathml") {
-      // viewPartialSource.js will take care of loading the content.
-      return;
-    }
 
     if (aArguments[2]) {
       let pageDescriptor = aArguments[2];
@@ -629,28 +633,18 @@ ViewSourceChrome.prototype = {
   },
 
   /**
-   * Called when the user clicks on the "Wrap Long Lines" menu item, and
-   * flips the user preference for wrapping long lines in the view source
-   * browser.
+   * Called when the user clicks on the "Wrap Long Lines" menu item.
    */
   toggleWrapping() {
     this.shouldWrap = !this.shouldWrap;
-    Services.prefs.setBoolPref("view_source.wrap_long_lines",
-                               this.shouldWrap);
     this.sendAsyncMessage("ViewSource:ToggleWrapping");
   },
 
   /**
-   * Called when the user clicks on the "Syntax Highlighting" menu item, and
-   * flips the user preference for wrapping long lines in the view source
-   * browser.
+   * Called when the user clicks on the "Syntax Highlighting" menu item.
    */
   toggleSyntaxHighlighting() {
     this.shouldHighlight = !this.shouldHighlight;
-    // We can't flip this value in the child, since prefs are read-only there.
-    // We flip it here, and then toggle a class in the child.
-    Services.prefs.setBoolPref("view_source.syntax_highlight",
-                               this.shouldHighlight);
     this.sendAsyncMessage("ViewSource:ToggleSyntaxHighlighting");
   },
 
