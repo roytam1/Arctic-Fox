@@ -1318,6 +1318,27 @@ public:
   }
 
   bool
+  PerformanceLoggingEnabled() const
+  {
+    AssertIsOnWorkerThread();
+    return mPreferences[WORKERPREF_PERFORMANCE_LOGGING_ENABLED];
+  }
+
+  bool
+  PushEnabled() const
+  {
+    AssertIsOnWorkerThread();
+    return mPreferences[WORKERPREF_PUSH];
+  }
+
+  bool
+  RequestContextEnabled() const
+  {
+    AssertIsOnWorkerThread();
+    return mPreferences[WORKERPREF_REQUESTCONTEXT];
+  }
+
+  bool
   OnLine() const
   {
     AssertIsOnWorkerThread();
