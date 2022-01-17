@@ -8,6 +8,7 @@ let Cu = Components.utils;
 let Cc = Components.classes;
 
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
+Cu.import("resource://gre/modules/NotificationDB.jsm");
 Cu.import("resource:///modules/RecentWindow.jsm");
 
 
@@ -19,16 +20,14 @@ XPCOMUtils.defineLazyModuleGetter(this, "BrowserUITelemetry",
                                   "resource:///modules/BrowserUITelemetry.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "E10SUtils",
                                   "resource:///modules/E10SUtils.jsm");
-
-XPCOMUtils.defineLazyModuleGetter(this, "CharsetMenu",
-                                  "resource://gre/modules/CharsetMenu.jsm");
-
 XPCOMUtils.defineLazyModuleGetter(this, "BrowserUtils",
                                   "resource://gre/modules/BrowserUtils.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "Task",
                                   "resource://gre/modules/Task.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "PromiseUtils",
                                   "resource://gre/modules/PromiseUtils.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "CharsetMenu",
+                                  "resource://gre/modules/CharsetMenu.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "ContentSearch",
                                   "resource:///modules/ContentSearch.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "AboutHome",
@@ -735,6 +734,13 @@ function gKeywordURIFixup({ target: browser, data: fixupInfo }) {
   let hostName = alternativeURI.host;
   // and the ascii-only host for the pref:
   let asciiHost = alternativeURI.asciiHost;
+  // Normalize out a single trailing dot - NB: not using endsWith/lastIndexOf
+  // because we need to be sure this last dot is the *only* dot, too.
+  // More generally, this is used for the pref and should stay in sync with
+  // the code in nsDefaultURIFixup::KeywordURIFixup .
+  if (asciiHost.indexOf('.') == asciiHost.length - 1) {
+    asciiHost = asciiHost.slice(0, -1);
+  }
 
   let onLookupComplete = (request, record, status) => {
     let browser = weakBrowser.get();
@@ -1266,7 +1272,7 @@ var gBrowserInit = {
           .DownloadsCommon.initializeAllDataLinks();
         Cu.import("resource:///modules/DownloadsTaskbar.jsm", {})
           .DownloadsTaskbar.registerIndicator(window);
-      } catch(ex) {
+      } catch (ex) {
         Cu.reportError(ex);
       }
     }, 10000);
@@ -1282,7 +1288,7 @@ var gBrowserInit = {
         Cu.reportError(ex);
       }
     }, 3000);
-    
+
     // The object handling the downloads indicator is also initialized here in the
     // delayed startup function, but the actual indicator element is not loaded
     // unless there are downloads to be displayed.
@@ -1480,7 +1486,7 @@ var gBrowserInit = {
     TabsOnTop.uninit();
 
     TabsInTitlebar.uninit();
-    
+
     ToolbarIconColor.uninit();
 
     BrowserOnClick.uninit();
@@ -1622,7 +1628,9 @@ var gBrowserInit = {
     gSyncUI.init();
 #endif
 
+#ifdef E10S_TESTING_ONLY
     gRemoteTabsUI.init();
+#endif
   },
 
   nonBrowserWindowShutdown: function() {
@@ -1807,6 +1815,10 @@ function BrowserReloadOrDuplicate(aEvent) {
 }
 
 function BrowserReload() {
+  if (gBrowser.currentURI.schemeIs("view-source")) {
+    // Bug 1167797: For view source, we always skip the cache
+    return BrowserReloadSkipCache();
+  }
   const reloadFlags = nsIWebNavigation.LOAD_FLAGS_NONE;
   BrowserReloadWithFlags(reloadFlags);
 }
@@ -3373,7 +3385,7 @@ const BrowserSearch = {
     openUILinkIn(searchEnginesURL, where);
   },
 
-/**
+  /**
    * Helper to record a search with Firefox Health Report.
    *
    * FHR records only search counts and nothing pertaining to the search itself.
@@ -3430,7 +3442,7 @@ function FillHistoryMenu(aParent) {
   }
 
   // Remove old entries if any
-  var children = aParent.childNodes;
+  let children = aParent.childNodes;
   for (var i = children.length - 1; i >= 0; --i) {
     if (children[i].hasAttribute("index"))
       aParent.removeChild(children[i]);
@@ -5097,7 +5109,7 @@ var TabsInTitlebar = {
     } else {
       document.documentElement.removeAttribute("tabsintitlebar");
     }
-    
+
     ToolbarIconColor.inferFromText();
   },
 
@@ -5169,6 +5181,7 @@ function displaySecurityInfo()
 {
   BrowserPageInfo(null, "securityTab");
 }
+
 
 var gHomeButton = {
   prefDomain: "browser.startup.homepage",
@@ -5533,7 +5546,6 @@ function handleDroppedLink(event, url, name)
   // built-in to gecko if they happen to be above us.
   event.preventDefault();
 };
-
 
 function BrowserSetForcedCharacterSet(aCharset)
 {
@@ -6167,6 +6179,10 @@ function WindowIsClosing()
 
   if (!closeWindow(false, warnAboutClosingWindow))
     return false;
+
+  // Bug 967873 - Proxy nsDocumentViewer::PermitUnload to the child process
+  if (gMultiProcessBrowser)
+    return true;
 
   for (let browser of gBrowser.browsers) {
     let ds = browser.docShell;
