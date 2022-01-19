@@ -6383,7 +6383,7 @@ bool nsWindow::OnTouch(WPARAM wParam, LPARAM lParam)
 
     // Walk across the touch point array processing each contact point
     for (uint32_t i = 0; i < cInputs; i++) {
-      uint32_t msg;
+      EventMessage msg;
 
       if (pInputs[i].dwFlags & (TOUCHEVENTF_DOWN | TOUCHEVENTF_MOVE)) {
         // Create a standard touch event to send
