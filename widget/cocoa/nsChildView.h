@@ -42,6 +42,10 @@ class RectTextureImage;
 } // namespace
 
 namespace mozilla {
+class InputData;
+class PanGestureInput;
+class SwipeTracker;
+struct SwipeEventQueue;
 class VibrancyManager;
 namespace layers {
 class GLManager;
@@ -239,7 +243,6 @@ typedef NSInteger NSEventGestureAxis;
 #ifdef __LP64__
   // Support for fluid swipe tracking.
   BOOL* mCancelSwipeAnimation;
-  uint32_t mCurrentSwipeDir;
 #endif
 
   // Whether this uses off-main-thread compositing.
@@ -279,6 +282,9 @@ typedef NSInteger NSEventGestureAxis;
 
 - (BOOL)isCoveringTitlebar;
 
+- (void)viewWillStartLiveResize;
+- (void)viewDidEndLiveResize;
+
 - (NSColor*)vibrancyFillColorForThemeGeometryType:(nsITheme::ThemeGeometryType)aThemeGeometryType;
 - (NSColor*)vibrancyFontSmoothingBackgroundColorForThemeGeometryType:(nsITheme::ThemeGeometryType)aThemeGeometryType;
 
@@ -304,14 +310,6 @@ typedef NSInteger NSEventGestureAxis;
 
 // Helper function for Lion smart magnify events
 + (BOOL)isLionSmartMagnifyEvent:(NSEvent*)anEvent;
-
-// Support for fluid swipe tracking.
-#ifdef __LP64__
-- (void)maybeTrackScrollEventAsSwipe:(NSEvent *)anEvent
-                     scrollOverflowX:(double)anOverflowX
-                     scrollOverflowY:(double)anOverflowY
-              viewPortIsOverscrolled:(BOOL)aViewPortIsOverscrolled;
-#endif
 
 - (void)setUsingOMTCompositor:(BOOL)aUseOMTC;
 
@@ -547,9 +545,15 @@ public:
                             int32_t aPanelX, int32_t aPanelY,
                             nsString& aCommitted) override;
 
-  NS_IMETHOD SetPluginFocused(bool& aFocused);
+  NS_IMETHOD SetPluginFocused(bool& aFocused) override;
 
   bool IsPluginFocused() { return mPluginFocused; }
+
+  virtual nsIntPoint GetClientOffset() override;
+
+  void DispatchAPZWheelInputEvent(mozilla::InputData& aEvent, bool aCanTriggerSwipe);
+
+  void SwipeFinished();
 
 protected:
   virtual ~nsChildView();
@@ -593,6 +597,15 @@ protected:
 
   virtual nsresult NotifyIMEInternal(
                      const IMENotification& aIMENotification) override;
+
+  struct SwipeInfo {
+    bool wantsSwipe;
+    uint32_t allowedDirections;
+  };
+
+  SwipeInfo SendMayStartSwipe(const mozilla::PanGestureInput& aSwipeStartEvent);
+  void TrackScrollEventAsSwipe(const mozilla::PanGestureInput& aSwipeStartEvent,
+                               uint32_t aAllowedDirections);
 
 protected:
 
@@ -659,6 +672,8 @@ protected:
   nsAutoPtr<GLPresenter> mGLPresenter;
 
   mozilla::UniquePtr<mozilla::VibrancyManager> mVibrancyManager;
+  nsRefPtr<mozilla::SwipeTracker> mSwipeTracker;
+  mozilla::UniquePtr<mozilla::SwipeEventQueue> mSwipeEventQueue;
 
   static uint32_t sLastInputEventCount;
 

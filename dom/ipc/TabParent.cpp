@@ -289,6 +289,7 @@ TabParent::TabParent(nsIContentParent* aManager,
   , mCursor(nsCursor(-1))
   , mTabSetsCursor(false)
   , mHasContentOpener(false)
+  , mActiveSupressDisplayportCount(0)
 {
   MOZ_ASSERT(aManager);
 }
@@ -2523,10 +2524,9 @@ TabParent::RecvGetMaxTouchPoints(uint32_t* aTouchPoints)
   return true;
 }
 
-bool
-TabParent::RecvGetWidgetNativeData(WindowsHandle* aValue)
+already_AddRefed<nsIWidget>
+TabParent::GetTopLevelWidget()
 {
-  *aValue = 0;
   nsCOMPtr<nsIContent> content = do_QueryInterface(mFrameElement);
   if (content) {
     nsIPresShell* shell = content->OwnerDoc()->GetShell();
@@ -2534,11 +2534,48 @@ TabParent::RecvGetWidgetNativeData(WindowsHandle* aValue)
       nsViewManager* vm = shell->GetViewManager();
       nsCOMPtr<nsIWidget> widget;
       vm->GetRootWidget(getter_AddRefs(widget));
-      if (widget) {
-        *aValue = reinterpret_cast<WindowsHandle>(
-          widget->GetNativeData(NS_NATIVE_SHAREABLE_WINDOW));
-      }
+      return widget.forget();
     }
+  }
+  return nullptr;
+}
+
+bool
+TabParent::RecvGetWidgetNativeData(WindowsHandle* aValue)
+{
+  *aValue = 0;
+  nsCOMPtr<nsIWidget> widget = GetTopLevelWidget();
+  if (widget) {
+    *aValue = reinterpret_cast<WindowsHandle>(
+      widget->GetNativeData(NS_NATIVE_SHAREABLE_WINDOW));
+  }
+  return true;
+}
+
+bool
+TabParent::RecvSetNativeChildOfShareableWindow(const uintptr_t& aChildWindow)
+{
+#if defined(XP_WIN)
+  nsCOMPtr<nsIWidget> widget = GetTopLevelWidget();
+  if (widget) {
+    // Note that this call will probably cause a sync native message to the
+    // process that owns the child window.
+    widget->SetNativeData(NS_NATIVE_CHILD_OF_SHAREABLE_WINDOW, aChildWindow);
+  }
+  return true;
+#else
+  NS_NOTREACHED(
+    "TabParent::RecvSetNativeChildOfShareableWindow not implemented!");
+  return false;
+#endif
+}
+
+bool
+TabParent::RecvDispatchFocusToTopLevelWindow()
+{
+  nsCOMPtr<nsIWidget> widget = GetTopLevelWidget();
+  if (widget) {
+    widget->SetFocus(false);
   }
   return true;
 }
@@ -2813,6 +2850,16 @@ TabParent::RecvUpdateZoomConstraints(const uint32_t& aPresShellId,
 }
 
 bool
+TabParent::RecvRespondStartSwipeEvent(const uint64_t& aInputBlockId,
+                                      const bool& aStartSwipe)
+{
+  if (nsCOMPtr<nsIWidget> widget = GetWidget()) {
+    widget->ReportSwipeStarted(aInputBlockId, aStartSwipe);
+  }
+  return true;
+}
+
+bool
 TabParent::RecvContentReceivedInputBlock(const ScrollableLayerGuid& aGuid,
                                          const uint64_t& aInputBlockId,
                                          const bool& aPreventDefault)
@@ -2935,6 +2982,25 @@ NS_IMETHODIMP
 TabParent::SetIsDocShellActive(bool isActive)
 {
   unused << SendSetIsDocShellActive(isActive);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+TabParent::SuppressDisplayport(bool aEnabled)
+{
+  if (IsDestroyed()) {
+    return NS_OK;
+  }
+
+  if (aEnabled) {
+    mActiveSupressDisplayportCount++;
+  } else {
+    mActiveSupressDisplayportCount--;
+  }
+
+  MOZ_ASSERT(mActiveSupressDisplayportCount >= 0);
+
+  unused << SendSuppressDisplayport(aEnabled);
   return NS_OK;
 }
 

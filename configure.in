@@ -29,6 +29,7 @@ LDFLAGS="${LDFLAGS=}"
 HOST_CFLAGS="${HOST_CFLAGS=}"
 HOST_CXXFLAGS="${HOST_CXXFLAGS=}"
 HOST_LDFLAGS="${HOST_LDFLAGS=}"
+RUSTFLAGS="${RUSTFLAGS=}"
 
 dnl ========================================================
 dnl = Preserve certain environment flags passed to configure
@@ -426,6 +427,36 @@ MOZ_TOOL_VARIABLES
 
 MOZ_CHECK_COMPILER_WRAPPER
 
+MOZ_PATH_PROG(RUSTC, rustc)
+if test -n "$RUSTC"; then
+  AC_MSG_CHECKING([rustc version])
+  RUSTC_VERSION=`$RUSTC --version | cut -d ' ' -f 2`
+  # Parse out semversion elements.
+  _RUSTC_MAJOR_VERSION=`echo ${RUSTC_VERSION} | cut -d . -f 1`
+  _RUSTC_MINOR_VERSION=`echo ${RUSTC_VERSION} | cut -d . -f 2`
+  _RUSTC_EXTRA_VERSION=`echo ${RUSTC_VERSION} | cut -d . -f 3 | cut -d + -f 1`
+  _RUSTC_PATCH_VERSION=`echo ${_RUSTC_EXTRA_VERSION} | cut -d '-' -f 1`
+  AC_MSG_RESULT([$RUSTC_VERSION (v${_RUSTC_MAJOR_VERSION}.${_RUSTC_MINOR_VERSION}.${_RUSTC_PATCH_VERSION})])
+fi
+MOZ_ARG_ENABLE_BOOL([rust],
+                    [  --enable-rust           Include Rust language sources],
+                    [MOZ_RUST=1],
+                    [MOZ_RUST= ])
+if test -z "$RUSTC" -a -n "$MOZ_RUST"; then
+  AC_MSG_ERROR([Rust compiler not found.
+    To compile rust language sources, you must have 'rustc' in your path.
+    See http://www.rust-lang.org/ for more information.])
+fi
+if test -n "$MOZ_RUST" -a -z "$_RUSTC_MAJOR_VERSION" -o \
+  "$_RUSTC_MAJOR_VERSION" -lt 1; then
+  AC_MSG_ERROR([Rust compiler ${RUSTC_VERSION} is too old.
+    To compile Rust language sources please install at least
+    version 1.0 of the 'rustc' toolchain and make sure it is
+    first in your path.
+    You can verify this by typing 'rustc --version'.])
+fi
+AC_SUBST(MOZ_RUST)
+
 dnl ========================================================
 dnl Check for MacOS deployment target version
 dnl ========================================================
@@ -449,6 +480,44 @@ case "$target" in
 esac
 
 AC_SUBST(MACOSX_DEPLOYMENT_TARGET)
+
+dnl ========================================================
+dnl Special MacOS X checks
+dnl ========================================================
+
+if test -n "$MACOSX_DEPLOYMENT_TARGET" -a -n "$MOZ_RUST"; then
+  AC_MSG_CHECKING([rustc compatibility with MacOS X])
+  # Stock rustc doesn't support MacOS X 10.6 or earlier.
+  # https://github.com/rust-lang/rust/issues/25342
+  _MACOSX_TARGET_MINOR=`echo "$MACOSX_DEPLOYMENT_TARGET" | cut -d. -f2`
+  if test "$_MACOSX_TARGET_MINOR" -lt 7; then
+    dnl Test C linkage against rust code to see if the rust
+    dnl toolchain output is compatible.
+    cat > conftest.rs <<EOF
+      [#[no_mangle]]
+      pub extern fn rusty_answer() -> u8 { 42 }
+EOF
+    ac_try="$RUSTC --crate-type staticlib -o conftest.a conftest.rs >/dev/null"
+    AC_TRY_EVAL(ac_try)
+    save_LDFLAGS=$LDFLAGS
+    LDFLAGS="$LDFLAGS conftest.a -lpthread -lm"
+    AC_TRY_LINK_FUNC([rusty_answer], [
+      AC_MSG_RESULT([$MACOSX_DEPLOYMENT_TARGET is ok with this rustc])
+    ], [
+      AC_MSG_RESULT([cannot link on $MACOSX_DEPLOYMENT_TARGET])
+      MOZ_RUST=
+    ])
+    LDFLAGS=$save_LDFLAGS
+    rm -rf conftest*
+  else
+    AC_MSG_RESULT([$MACOSX_DEPLOYMENT_TARGET is ok])
+  fi
+  if test -z "$MOZ_RUST"; then
+    AC_MSG_ERROR([rustc does not support MacOS X $MACOSX_DEPLOYMENT_TARGET
+      Add 'ac_add_options --enable-macos-target=10.7' (or later)
+      to mozconfig, disable Rust support, or use an alternate toolchain.])
+  fi
+fi
 
 dnl ========================================================
 dnl Special win32 checks
@@ -1899,6 +1968,18 @@ dnl ==============================================================
 MOZILLA_VERSION=`$PYTHON $srcdir/python/mozbuild/mozbuild/milestone.py --topsrcdir $srcdir`
 MOZILLA_UAVERSION=`$PYTHON $srcdir/python/mozbuild/mozbuild/milestone.py --topsrcdir $srcdir --uaversion`
 MOZILLA_SYMBOLVERSION=`$PYTHON $srcdir/python/mozbuild/mozbuild/milestone.py --topsrcdir $srcdir --symbolversion`
+
+dnl Get version of various core apps from the version files.
+FIREFOX_VERSION=`cat $_topsrcdir/browser/config/version.txt`
+FIREFOX_VERSION_ABOUT=`cat $_topsrcdir/browser/config/version_about.txt`
+
+if test -z "$FIREFOX_VERSION"; then
+    AC_MSG_ERROR([FIREFOX_VERSION is unexpectedly blank.])
+fi
+
+if test -z "$FIREFOX_VERSION_ABOUT"; then
+    AC_MSG_ERROR([FIREFOX_VERSION_ABOUT is unexpectedly blank.])
+fi
 
 AC_DEFINE_UNQUOTED(MOZILLA_VERSION,"$MOZILLA_VERSION")
 AC_DEFINE_UNQUOTED(MOZILLA_VERSION_U,$MOZILLA_VERSION)
@@ -6573,6 +6654,10 @@ if test -z "$MOZ_OPTIMIZE_FLAGS"; then
     MOZ_OPTIMIZE_FLAGS="-O"
 fi
 
+if test -z "$MOZ_OPTIMIZE_RUSTFLAGS"; then
+    MOZ_OPTIMIZE_RUSTFLAGS="-O"
+fi
+
 MOZ_ARG_ENABLE_STRING(optimize,
 [  --disable-optimize      Disable compiler optimization
   --enable-optimize=[OPT] Specify compiler optimization flags [OPT=-O]],
@@ -6590,7 +6675,7 @@ MOZ_SET_FRAMEPTR_FLAGS
 
 if test "$COMPILE_ENVIRONMENT"; then
 if test -n "$MOZ_OPTIMIZE"; then
-    AC_MSG_CHECKING([for valid optimization flags])
+    AC_MSG_CHECKING([for valid C compiler optimization flags])
     _SAVE_CFLAGS=$CFLAGS
     CFLAGS="$CFLAGS $MOZ_OPTIMIZE_FLAGS"
     AC_TRY_COMPILE([#include <stdio.h>],
@@ -6599,7 +6684,7 @@ if test -n "$MOZ_OPTIMIZE"; then
         _results=no)
     AC_MSG_RESULT([$_results])
     if test "$_results" = "no"; then
-        AC_MSG_ERROR([These compiler flags are invalid: $MOZ_OPTIMIZE_FLAGS])
+        AC_MSG_ERROR([These compiler flags for C are invalid: $MOZ_OPTIMIZE_FLAGS])
     fi
     CFLAGS=$_SAVE_CFLAGS
 fi
@@ -6608,6 +6693,7 @@ fi # COMPILE_ENVIRONMENT
 AC_SUBST(MOZ_OPTIMIZE)
 AC_SUBST(MOZ_FRAMEPTR_FLAGS)
 AC_SUBST(MOZ_OPTIMIZE_FLAGS)
+AC_SUBST(MOZ_OPTIMIZE_RUSTFLAGS)
 AC_SUBST(MOZ_OPTIMIZE_LDFLAGS)
 AC_SUBST(MOZ_ALLOW_HEAP_EXECUTE_FLAGS)
 AC_SUBST(MOZ_PGO)
@@ -8349,6 +8435,7 @@ AC_DEFINE_UNQUOTED(MOZ_APP_UA_NAME, "$MOZ_APP_UA_NAME")
 AC_SUBST(MOZ_APP_UA_NAME)
 AC_DEFINE_UNQUOTED(MOZ_APP_UA_VERSION, "$MOZ_APP_VERSION")
 AC_SUBST(MOZ_APP_VERSION)
+AC_SUBST(MOZ_APP_VERSION_ABOUT)
 AC_SUBST(MOZ_APP_MAXVERSION)
 AC_DEFINE_UNQUOTED(FIREFOX_VERSION,$FIREFOX_VERSION)
 AC_SUBST(FIREFOX_VERSION)
@@ -8753,94 +8840,7 @@ if test "$COMPILE_ENVIRONMENT" -a -z "$LIBXUL_SDK_DIR"; then
   MOZ_SUBCONFIGURE_FFI()
 fi
 
-# Run jemalloc configure script
-
-if test -z "$MOZ_NATIVE_JEMALLOC" -a "$MOZ_MEMORY" && test -n "$MOZ_JEMALLOC4" -o -n "$MOZ_REPLACE_MALLOC"; then
-  ac_configure_args="--build=$build --host=$target --enable-stats --with-jemalloc-prefix=je_ --disable-valgrind"
-  # We're using memalign for _aligned_malloc in memory/build/mozmemory_wrap.c
-  # on Windows, so just export memalign on all platforms.
-  ac_configure_args="$ac_configure_args ac_cv_func_memalign=yes"
-  if test -n "$MOZ_REPLACE_MALLOC"; then
-    # When using replace_malloc, we always want valloc exported from jemalloc.
-    ac_configure_args="$ac_configure_args ac_cv_func_valloc=yes"
-    if test "${OS_ARCH}" = Darwin; then
-      # We also need to enable pointer validation on Mac because jemalloc's
-      # zone allocator is not used.
-      ac_configure_args="$ac_configure_args --enable-ivsalloc"
-    fi
-  fi
-  if test -n "$MOZ_JEMALLOC4"; then
-    case "${OS_ARCH}" in
-      WINNT|Darwin)
-        # We want jemalloc functions to be kept hidden on both Mac and Windows
-        # See memory/build/mozmemory_wrap.h for details.
-        ac_configure_args="$ac_configure_args --without-export"
-        ;;
-    esac
-    if test "${OS_ARCH}" = WINNT; then
-      # Lazy lock initialization doesn't play well with lazy linking of
-      # mozglue.dll on Windows XP (leads to startup crash), so disable it.
-      ac_configure_args="$ac_configure_args --disable-lazy-lock"
-    fi
-  elif test "${OS_ARCH}" = Darwin; then
-    # When building as a replace-malloc lib, disabling the zone allocator
-    # forces to use pthread_atfork.
-    ac_configure_args="$ac_configure_args --disable-zone-allocator"
-  fi
-  _MANGLE="malloc posix_memalign aligned_alloc calloc realloc free memalign valloc malloc_usable_size"
-  JEMALLOC_WRAPPER=
-  if test -z "$MOZ_REPLACE_MALLOC"; then
-    case "$OS_ARCH" in
-      Linux|DragonFly|FreeBSD|NetBSD|OpenBSD)
-        MANGLE=$_MANGLE
-        ;;
-    esac
-  elif test -z "$MOZ_JEMALLOC4"; then
-    MANGLE=$_MANGLE
-    JEMALLOC_WRAPPER=replace_
-  fi
-  if test -n "$MANGLE"; then
-    MANGLED=
-    for mangle in ${MANGLE}; do
-      if test -n "$MANGLED"; then
-        MANGLED="$mangle:$JEMALLOC_WRAPPER$mangle,$MANGLED"
-      else
-        MANGLED="$mangle:$JEMALLOC_WRAPPER$mangle"
-      fi
-    done
-    ac_configure_args="$ac_configure_args --with-mangling=$MANGLED"
-  fi
-  unset CONFIG_FILES
-  if test -z "$MOZ_TLS"; then
-    ac_configure_args="$ac_configure_args --disable-tls"
-  fi
-  EXTRA_CFLAGS="$CFLAGS"
-  for var in AS CC CXX CPP LD AR RANLIB STRIP CPPFLAGS EXTRA_CFLAGS LDFLAGS; do
-    ac_configure_args="$ac_configure_args $var='`eval echo \\${${var}}`'"
-  done
-  # Force disable DSS support in jemalloc.
-  ac_configure_args="$ac_configure_args ac_cv_func_sbrk=false"
-
-  # Make Linux builds munmap freed chunks instead of recycling them.
-  ac_configure_args="$ac_configure_args --enable-munmap"
-
-  # Disable cache oblivious behavior that appears to have a performance
-  # impact on Firefox.
-  ac_configure_args="$ac_configure_args --disable-cache-oblivious"
-
-  if ! test -e memory/jemalloc; then
-    mkdir -p memory/jemalloc
-  fi
-
-  # jemalloc's configure runs git to determine the version. But when building
-  # from a gecko git clone, the git commands it uses is going to pick gecko's
-  # information, not jemalloc's, which is useless. So pretend we don't have git
-  # at all. That will make jemalloc's configure pick the in-tree VERSION file.
-  (PATH="$srcdir/memory/jemalloc/helper:$PATH";
-  AC_OUTPUT_SUBDIRS(memory/jemalloc/src)
-  ) || exit 1
-  ac_configure_args="$_SUBDIR_CONFIG_ARGS"
-fi
+MOZ_SUBCONFIGURE_JEMALLOC()
 
 # Run freetype configure script
 
