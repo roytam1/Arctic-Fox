@@ -92,7 +92,7 @@
 #include "nsSandboxFlags.h"
 #include "mozilla/layers/CompositorChild.h"
 
-#include "mozilla/dom/StructuredCloneUtils.h"
+#include "mozilla/dom/ipc/StructuredCloneData.h"
 #include "mozilla/WebBrowserPersistLocalDocument.h"
 
 #ifdef MOZ_XUL
@@ -376,7 +376,19 @@ nsFrameLoader::ReallyStartLoadingInternal()
     }
   }
 
-  loadInfo->SetReferrerPolicy(mOwnerContent->OwnerDoc()->GetReferrerPolicy());
+  // get referrer policy for this iframe:
+  // first load document wide policy, then
+  // load iframe referrer attribute if enabled in preferences
+  // per element referrer overrules document wide referrer if enabled
+  net::ReferrerPolicy referrerPolicy = mOwnerContent->OwnerDoc()->GetReferrerPolicy();
+  HTMLIFrameElement* iframe = HTMLIFrameElement::FromContent(mOwnerContent);
+  if (iframe) {
+    net::ReferrerPolicy iframeReferrerPolicy = iframe->GetReferrerPolicy();
+    if (iframeReferrerPolicy != net::RP_Unset) {
+      referrerPolicy = iframeReferrerPolicy;
+    }
+  }
+  loadInfo->SetReferrerPolicy(referrerPolicy);
 
   // Default flags:
   int32_t flags = nsIWebNavigation::LOAD_FLAGS_NONE;
@@ -2399,7 +2411,7 @@ public:
   nsAsyncMessageToChild(JSContext* aCx,
                         nsFrameLoader* aFrameLoader,
                         const nsAString& aMessage,
-                        const StructuredCloneData& aData,
+                        StructuredCloneData& aData,
                         JS::Handle<JSObject *> aCpows,
                         nsIPrincipal* aPrincipal)
     : nsSameProcessAsyncMessageBase(aCx, aMessage, aData, aCpows, aPrincipal)
@@ -2426,7 +2438,7 @@ public:
 bool
 nsFrameLoader::DoSendAsyncMessage(JSContext* aCx,
                                   const nsAString& aMessage,
-                                  const StructuredCloneData& aData,
+                                  StructuredCloneData& aData,
                                   JS::Handle<JSObject *> aCpows,
                                   nsIPrincipal* aPrincipal)
 {
@@ -2776,6 +2788,10 @@ nsFrameLoader::RequestNotifyLayerTreeReady()
     return mRemoteBrowser->RequestNotifyLayerTreeReady() ? NS_OK : NS_ERROR_NOT_AVAILABLE;
   }
 
+  if (!mOwnerContent) {
+    return NS_ERROR_NOT_AVAILABLE;
+  }
+
   nsRefPtr<AsyncEventDispatcher> event =
     new AsyncEventDispatcher(mOwnerContent,
                              NS_LITERAL_STRING("MozLayerTreeReady"),
@@ -2790,6 +2806,10 @@ nsFrameLoader::RequestNotifyLayerTreeCleared()
 {
   if (mRemoteBrowser) {
     return mRemoteBrowser->RequestNotifyLayerTreeCleared() ? NS_OK : NS_ERROR_NOT_AVAILABLE;
+  }
+
+  if (!mOwnerContent) {
+    return NS_ERROR_NOT_AVAILABLE;
   }
 
   nsRefPtr<AsyncEventDispatcher> event =
