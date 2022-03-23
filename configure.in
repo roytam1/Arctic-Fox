@@ -300,6 +300,7 @@ if test -n "$gonkdir" ; then
             MOZ_B2G_BT_DAEMON=1
         fi
         MOZ_NFC=1
+        MOZ_RTSP=1
         ;;
     *)
         AC_MSG_ERROR([Unsupported platform version: $ANDROID_VERSION])
@@ -2249,7 +2250,7 @@ ia64*-hpux*)
         MKCSHLIB='$(LD) -NOLOGO -DLL -OUT:$@ -PDB:$(LINK_PDBFILE) $(DSO_LDOPTS)'
         MKSHLIB_FORCE_ALL=
         MKSHLIB_UNFORCE_ALL=
-        dnl Set subsystem version 6.
+        dnl Set subsystem version 5 for Windows XP.
         WIN32_SUBSYSTEM_VERSION=5.01
         if test "$HAVE_64BIT_BUILD"; then
             WIN32_SUBSYSTEM_VERSION=5.02
@@ -5711,6 +5712,11 @@ x86_64)
   ;;
 esac
 
+MOZ_ARG_ENABLE_BOOL(require-all-d3dc-versions,
+[  --enable-require-all-d3dc-versions Require all versions of the D3D compiler needed for supported Windows systems.],
+    MOZ_REQUIRE_ALL_D3DCS=1,
+    MOZ_REQUIRE_ALL_D3DCS=)
+
 # This is potentially set in external mozconfig files; if it's set,
 # then the build exposes the "webgl" context name, which is reserved
 # for conformant implementations.
@@ -5771,6 +5777,9 @@ if test -n "$MOZ_ANGLE_RENDERER"; then
   ######################################
   # Find _43 for use by XP.
 
+  if test "$HAVE_64BIT_BUILD"; then
+    AC_MSG_RESULT([We are building a 64-bit binary, skip checking d3dcompiler_43.])
+  else
     # Get the SDK path from the registry.
     # First try to get the June 2010 SDK
     MOZ_DIRECTX_SDK_REG_KEY=`reg query 'HKLM\Software\Microsoft\DirectX' //s | grep 'Microsoft DirectX SDK (June 2010)' | head -n 1`
@@ -5818,6 +5827,7 @@ if test -n "$MOZ_ANGLE_RENDERER"; then
     else
       AC_MSG_RESULT([Couldn't find an acceptable DirectX SDK for ANGLE, needed for d3dcompiler_43.])
     fi
+  fi
 
   ######################################
   # Check that we found what we needed.
