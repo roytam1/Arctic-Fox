@@ -39,6 +39,8 @@ pref("extensions.minCompatibleAppVersion", "1.5");
 
 pref("xpinstall.customConfirmationUI", true);
 
+pref("extensions.getAddons.link.url", "https://addons.mozilla.org/%LOCALE%/firefox/");
+
 // Blocklist preferences
 pref("extensions.blocklist.enabled", true);
 pref("extensions.blocklist.interval", 86400);
@@ -58,6 +60,7 @@ pref("extensions.autoDisableScopes", 15);
 
 // Don't require signed add-ons by default
 pref("xpinstall.signatures.required", false);
+pref("xpinstall.signatures.devInfoURL", "https://wiki.mozilla.org/Addons/Extension_Signing");
 
 // Dictionary download preference
 pref("browser.dictionaries.download.url", "http://repository.binaryoutcast.com/dicts/");
@@ -1217,6 +1220,9 @@ pref("security.csp.speccompliant", true);
 // Block insecure active content on https pages
 pref("security.mixed_content.block_active_content", true);
 
+// ID (a UUID when set by gecko) that is used as a per profile suffix to a low
+// integrity temp directory.
+pref("security.sandbox.content.tempDirSuffix", "");
 
 // Required blocklist freshness for OneCRL OCSP bypass
 // (default should be at least as large as extensions.blocklist.interval)
@@ -1331,7 +1337,7 @@ pref("status4evar.status.toolbar.maxLength", 0);
 pref("status4evar.status.popup.invertMirror", false);
 pref("status4evar.status.popup.mouseMirror", true);
 
-#ifdef E10S_TESTING_ONLY
+#ifdef NIGHTLY_BUILD
 // At the moment, autostart.2 is used, while autostart.1 is unused.
 // We leave it here set to false to reset users' defaults and allow
 // us to change everybody to true in the future, when desired.
