@@ -17,7 +17,6 @@
 #include "nsNetUtil.h"
 #include "nsISupportsPriority.h"
 #include "nsIAuthPromptProvider.h"
-#include "nsIScriptSecurityManager.h"
 #include "nsSerializationHelper.h"
 #include "nsISerializable.h"
 #include "nsIAssociatedContentSecurity.h"
@@ -34,7 +33,11 @@
 #include "mozilla/LoadInfo.h"
 #include "nsIHttpHeaderVisitor.h"
 #include "nsQueryObject.h"
+#include "mozilla/BasePrincipal.h"
+#include "nsCORSListenerProxy.h"
 
+using mozilla::BasePrincipal;
+using mozilla::OriginAttributes;
 using namespace mozilla::dom;
 using namespace mozilla::ipc;
 
@@ -122,7 +125,8 @@ HttpChannelParent::Init(const HttpChannelCreationArgs& aArgs)
                        a.appCacheClientID(), a.allowSpdy(), a.allowAltSvc(), a.fds(),
                        a.loadInfo(), a.synthesizedResponseHead(),
                        a.synthesizedSecurityInfoSerialization(),
-                       a.cacheKey(), a.schedulingContextID(), a.allowStaleCacheContent());
+                       a.cacheKey(), a.schedulingContextID(), a.preflightArgs(),
+                       a.allowStaleCacheContent());
   }
   case HttpChannelCreationArgs::THttpChannelConnectArgs:
   {
@@ -281,6 +285,7 @@ HttpChannelParent::DoAsyncOpen(  const URIParams&           aURI,
                                  const nsCString&           aSecurityInfoSerialization,
                                  const uint32_t&            aCacheKey,
                                  const nsCString&           aSchedulingContextID,
+                                 const OptionalCorsPreflightArgs& aCorsPreflightArgs,
                                  const bool&                aAllowStaleCacheContent)
 {
   nsCOMPtr<nsIURI> uri = DeserializeURI(aURI);
@@ -388,6 +393,18 @@ HttpChannelParent::DoAsyncOpen(  const URIParams&           aURI,
       get_ArrayOfFileDescriptor().SwapElements(fds);
   }
 
+  if (aCorsPreflightArgs.type() == OptionalCorsPreflightArgs::TCorsPreflightArgs) {
+    const CorsPreflightArgs& args = aCorsPreflightArgs.get_CorsPreflightArgs();
+    nsCOMPtr<nsIPrincipal> preflightPrincipal =
+      PrincipalInfoToPrincipal(args.preflightPrincipal());
+    rv = mChannel->SetCorsPreflightParameters(args.unsafeHeaders(),
+                                              args.withCredentials(),
+                                              preflightPrincipal);
+    if (NS_FAILED(rv)) {
+      return SendFailedAsyncOpen(rv);
+    }
+  }
+
   nsCOMPtr<nsIInputStream> stream = DeserializeInputStream(uploadStream, fds);
   if (stream) {
     mChannel->InternalSetUploadStream(stream);
@@ -464,17 +481,15 @@ HttpChannelParent::DoAsyncOpen(  const URIParams&           aURI,
         mLoadContext->GetIsInBrowserElement(&inBrowser);
       }
 
-      bool chooseAppCache = false;
-      nsCOMPtr<nsIScriptSecurityManager> secMan =
-        do_GetService(NS_SCRIPTSECURITYMANAGER_CONTRACTID);
-      if (secMan) {
-        nsCOMPtr<nsIPrincipal> principal;
-        secMan->GetAppCodebasePrincipal(uri, appId, inBrowser, getter_AddRefs(principal));
+      // TODO: Bug 1165466 - use originAttribute in nsILoadContext.
+      OriginAttributes attrs(appId, inBrowser);
+      nsCOMPtr<nsIPrincipal> principal =
+        BasePrincipal::CreateCodebasePrincipal(uri, attrs);
 
-        // This works because we've already called SetNotificationCallbacks and
-        // done mPBOverride logic by this point.
-        chooseAppCache = NS_ShouldCheckAppCache(principal, NS_UsePrivateBrowsing(mChannel));
-      }
+      bool chooseAppCache = false;
+      // This works because we've already called SetNotificationCallbacks and
+      // done mPBOverride logic by this point.
+      chooseAppCache = NS_ShouldCheckAppCache(principal, NS_UsePrivateBrowsing(mChannel));
 
       appCacheChan->SetChooseApplicationCache(chooseAppCache);
     }
@@ -791,6 +806,24 @@ HttpChannelParent::RecvDivertComplete()
   }
 
   mParentListener = nullptr;
+  return true;
+}
+
+bool
+HttpChannelParent::RecvRemoveCorsPreflightCacheEntry(const URIParams& uri,
+  const mozilla::ipc::PrincipalInfo& requestingPrincipal)
+{
+  nsCOMPtr<nsIURI> deserializedURI = DeserializeURI(uri);
+  if (!deserializedURI) {
+    return false;
+  }
+  nsCOMPtr<nsIPrincipal> principal =
+    PrincipalInfoToPrincipal(requestingPrincipal);
+  if (!principal) {
+    return false;
+  }
+  nsCORSListenerProxy::RemoveFromCorsPreflightCache(deserializedURI,
+                                                    principal);
   return true;
 }
 

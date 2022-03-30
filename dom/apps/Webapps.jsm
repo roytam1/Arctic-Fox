@@ -82,9 +82,6 @@ XPCOMUtils.defineLazyModuleGetter(this, "ScriptPreloader",
 XPCOMUtils.defineLazyModuleGetter(this, "Langpacks",
                                   "resource://gre/modules/Langpacks.jsm");
 
-XPCOMUtils.defineLazyModuleGetter(this, "TrustedHostedAppsUtils",
-                                  "resource://gre/modules/TrustedHostedAppsUtils.jsm");
-
 XPCOMUtils.defineLazyModuleGetter(this, "ImportExport",
                                   "resource://gre/modules/ImportExport.jsm");
 
@@ -184,7 +181,6 @@ this.DOMApplicationRegistry = {
   get kPackaged()       "packaged",
   get kHosted()         "hosted",
   get kHostedAppcache() "hosted-appcache",
-  get kTrustedHosted()  "hosted-trusted",
 
   // Path to the webapps.json file where we store the registry data.
   appsFile: null,
@@ -432,7 +428,7 @@ this.DOMApplicationRegistry = {
           app.redirects = this.sanitizeRedirects(aResult.redirects);
         }
         app.kind = this.appKind(app, aResult.manifest);
-        UserCustomizations.register(aResult.manifest, app);
+        UserCustomizations.register(app);
         Langpacks.register(app, aResult.manifest);
       });
 
@@ -459,9 +455,7 @@ this.DOMApplicationRegistry = {
     } else {
       // Hosted apps, can be appcached or not.
       let kind = this.kHosted;
-      if (aManifest.type == "trusted") {
-        kind = this.kTrustedHosted;
-      } else if (aManifest.appcache_path) {
+      if (aManifest.appcache_path) {
         kind = this.kHostedAppcache;
       }
       return kind;
@@ -819,8 +813,7 @@ this.DOMApplicationRegistry = {
     let uri = Services.io.newURI(aOrigin, null, null);
     let secMan = Cc["@mozilla.org/scriptsecuritymanager;1"]
                    .getService(Ci.nsIScriptSecurityManager);
-    let principal = secMan.getAppCodebasePrincipal(uri, aId,
-                                                   /*mozbrowser*/ false);
+    let principal = secMan.createCodebasePrincipal(uri, {appId: aId});
     if (!dataStoreService.checkPermission(principal)) {
       return;
     }
@@ -894,6 +887,7 @@ this.DOMApplicationRegistry = {
       if (SystemMessagePermissionsChecker
             .isSystemMessagePermittedToRegister(messageName,
                                                 aApp.manifestURL,
+                                                aApp.origin,
                                                 aManifest)) {
         msgmgr.registerPage(messageName, handlerPageURI, manifestURI);
       }
@@ -949,6 +943,7 @@ this.DOMApplicationRegistry = {
       if (SystemMessagePermissionsChecker
             .isSystemMessagePermittedToRegister("connection",
                                                 aApp.manifestURL,
+                                                aApp.origin,
                                                 aManifest)) {
         msgmgr.registerPage("connection", handlerPageURI, manifestURI);
       }
@@ -1050,6 +1045,7 @@ this.DOMApplicationRegistry = {
         if (SystemMessagePermissionsChecker
               .isSystemMessagePermittedToRegister("activity",
                                                   aApp.manifestURL,
+                                                  aApp.origin,
                                                   aManifest)) {
           msgmgr.registerPage("activity", launchPathURI, manifestURI);
         }
@@ -1157,7 +1153,7 @@ this.DOMApplicationRegistry = {
         this._registerSystemMessages(manifest, app);
         this._registerInterAppConnections(manifest, app);
         appsToRegister.push({ manifest: manifest, app: app });
-        UserCustomizations.register(manifest, app);
+        UserCustomizations.register(app);
         Langpacks.register(app, manifest);
       });
       this._safeToClone.resolve();
@@ -1580,24 +1576,6 @@ this.DOMApplicationRegistry = {
       return;
     }
 
-    // Check if launching trusted hosted app
-    if (this.kTrustedHosted == app.kind) {
-      debug("Launching Trusted Hosted App!");
-      // sanity check on manifest host's CA
-      // (proper CA check with pinning is done by regular networking code)
-      if (!TrustedHostedAppsUtils.isHostPinned(aManifestURL)) {
-        debug("Trusted App Host certificate Not OK");
-        aOnFailure("TRUSTED_APPLICATION_HOST_CERTIFICATE_INVALID");
-        return;
-      }
-
-      debug("Trusted App Host pins exist");
-      if (!TrustedHostedAppsUtils.verifyCSPWhiteList(app.csp)) {
-        aOnFailure("TRUSTED_APPLICATION_WHITELIST_VALIDATION_FAILED");
-        return;
-      }
-    }
-
     // We have to clone the app object as nsIDOMApplication objects are
     // stringified as an empty object. (see bug 830376)
     let appClone = AppsUtils.cloneAppObject(app);
@@ -1919,9 +1897,7 @@ this.DOMApplicationRegistry = {
 
   startOfflineCacheDownload: function(aManifest, aApp, aProfileDir, aIsUpdate) {
     debug("startOfflineCacheDownload " + aApp.id + " " + aApp.kind);
-    if ((aApp.kind !== this.kHostedAppcache &&
-         aApp.kind !== this.kTrustedHosted) ||
-         !aManifest.appcache_path) {
+    if (aApp.kind !== this.kHostedAppcache || !aManifest.appcache_path) {
       return;
     }
     debug("startOfflineCacheDownload " + aManifest.appcache_path);
@@ -2006,10 +1982,10 @@ this.DOMApplicationRegistry = {
 
     // Update user customizations and langpacks.
     if (aOldManifest) {
-      UserCustomizations.unregister(aOldManifest, aApp);
+      UserCustomizations.unregister(aApp);
       Langpacks.unregister(aApp, aOldManifest);
     }
-    UserCustomizations.register(aNewManifest, aApp);
+    UserCustomizations.register(aApp);
     Langpacks.register(aApp, aNewManifest);
   },
 
@@ -2062,8 +2038,7 @@ this.DOMApplicationRegistry = {
 
     if (onlyCheckAppCache) {
       // Bail out for packaged apps & hosted apps without appcache.
-      if (aApp.kind !== this.kHostedAppcache &&
-          aApp.kind !== this.kTrustedHosted) {
+      if (aApp.kind !== this.kHostedAppcache) {
         sendError("NOT_UPDATABLE");
         return;
       }
@@ -2177,16 +2152,7 @@ this.DOMApplicationRegistry = {
 
             // For hosted apps and hosted apps with appcache, use the
             // manifest "as is".
-            if (this.kTrustedHosted !== this.appKind(app, manifest)) {
-              this.updateHostedApp(aData, id, app, oldManifest, manifest);
-              return;
-            }
-
-            // For trusted hosted apps, verify the manifest before
-            // installation.
-            TrustedHostedAppsUtils.verifyManifest(app, id, manifest)
-              .then(() => this.updateHostedApp(aData, id, app, oldManifest, manifest),
-                sendError);
+            this.updateHostedApp(aData, id, app, oldManifest, manifest);
           }
         }
       } else if (xhr.status == 304) {
@@ -2365,9 +2331,7 @@ this.DOMApplicationRegistry = {
     this.webapps[aId] = aApp;
     yield this._saveApps();
 
-    if ((aApp.kind !== this.kHostedAppcache &&
-         aApp.kind !== this.kTrustedHosted) ||
-         !aApp.manifest.appcache_path) {
+    if (aApp.kind !== this.kHostedAppcache || !aApp.manifest.appcache_path) {
       MessageBroadcaster.broadcastMessage("Webapps:UpdateState", {
         app: aApp,
         manifest: aApp.manifest,
@@ -2523,12 +2487,7 @@ this.DOMApplicationRegistry = {
     if (app.manifest) {
       if (checkManifest()) {
         debug("Installed manifest check OK");
-        if (this.kTrustedHosted !== this.appKind(app, app.manifest)) {
-          installApp();
-          return;
-        }
-        TrustedHostedAppsUtils.verifyManifest(aData.app, aData.appId, app.manifest)
-          .then(installApp, sendError);
+        installApp();
       } else {
         debug("Installed manifest check failed");
         // checkManifest() sends error before return
@@ -2556,14 +2515,7 @@ this.DOMApplicationRegistry = {
         if (checkManifest()) {
           debug("Downloaded manifest check OK");
           app.etag = xhr.getResponseHeader("Etag");
-          if (this.kTrustedHosted !== this.appKind(app, app.manifest)) {
-            installApp();
-            return;
-          }
-
-          debug("App kind: " + this.kTrustedHosted);
-          TrustedHostedAppsUtils.verifyManifest(aData.app, aData.appId, app.manifest)
-            .then(installApp, sendError);
+          installApp();
           return;
         } else {
           debug("Downloaded manifest check failed");
@@ -2822,9 +2774,6 @@ this.DOMApplicationRegistry = {
       aNewApp.appStatus || Ci.nsIPrincipal.APP_STATUS_INSTALLED;
 
     let usesAppcache = appObject.kind == this.kHostedAppcache;
-    if (appObject.kind == this.kTrustedHosted && aManifest.appcache_path) {
-      usesAppcache = true;
-    }
 
     if (usesAppcache) {
       appObject.installState = "pending";
@@ -2838,8 +2787,7 @@ this.DOMApplicationRegistry = {
       appObject.downloading = true;
       appObject.downloadSize = aLocaleManifest.size;
       appObject.readyToApplyDownload = false;
-    } else if (appObject.kind == this.kHosted ||
-               appObject.kind == this.kTrustedHosted) {
+    } else if (appObject.kind == this.kHosted) {
       appObject.installState = "installed";
       appObject.downloadAvailable = false;
       appObject.downloading = false;
@@ -3014,9 +2962,7 @@ this.DOMApplicationRegistry = {
 
     let dontNeedNetwork = false;
 
-    if ((appObject.kind == this.kHostedAppcache ||
-        appObject.kind == this.kTrustedHosted) &&
-        manifest.appcache_path) {
+    if (appObject.kind == this.kHostedAppcache && manifest.appcache_path) {
       this.queuedDownload[app.manifestURL] = {
         manifest: manifest,
         app: appObject,
@@ -3401,29 +3347,22 @@ this.DOMApplicationRegistry = {
     let requestChannel;
 
     let appURI = NetUtil.newURI(aNewApp.origin, null, null);
-    let principal = Services.scriptSecurityManager.getAppCodebasePrincipal(
-                      appURI, aNewApp.localId, false);
+    let principal =
+      Services.scriptSecurityManager.createCodebasePrincipal(appURI,
+                                                             {appId: aNewApp.localId});
 
     if (aIsLocalFileInstall) {
-      requestChannel = NetUtil.newChannel2(aFullPackagePath,
-                                           null,
-                                           null,
-                                           null,      // aLoadingNode
-                                           principal,
-                                           null,      // aTriggeringPrincipal
-                                           Ci.nsILoadInfo.SEC_NORMAL,
-                                           Ci.nsIContentPolicy.TYPE_OTHER)
-                              .QueryInterface(Ci.nsIFileChannel);
+      requestChannel = NetUtil.newChannel({
+        uri: aFullPackagePath,
+        loadingPrincipal: principal,
+        contentPolicyType: Ci.nsIContentPolicy.TYPE_OTHER}
+      ).QueryInterface(Ci.nsIFileChannel);
     } else {
-      requestChannel = NetUtil.newChannel2(aFullPackagePath,
-                                           null,
-                                           null,
-                                           null,      // aLoadingNode
-                                           principal,
-                                           null,      // aTriggeringPrincipal
-                                           Ci.nsILoadInfo.SEC_NORMAL,
-                                           Ci.nsIContentPolicy.TYPE_OTHER)
-                              .QueryInterface(Ci.nsIHttpChannel);
+      requestChannel = NetUtil.newChannel({
+        uri: aFullPackagePath,
+        loadingPrincipal: principal,
+        contentPolicyType: Ci.nsIContentPolicy.TYPE_OTHER}
+      ).QueryInterface(Ci.nsIHttpChannel);
       requestChannel.loadFlags |= Ci.nsIRequest.INHIBIT_CACHING;
     }
 
@@ -3752,11 +3691,21 @@ this.DOMApplicationRegistry = {
                          aIsSigned) {
     this._checkSignature(aNewApp, aIsSigned, aIsLocalFileInstall);
 
-    if (!aZipReader.hasEntry("manifest.webapp")) {
+    // Chrome-style extensions only have a manifest.json manifest.
+    // In this case we extract it, and convert it to a minimal
+    // manifest.webapp manifest.
+    // Packages that contain both manifest.webapp and manifest.json
+    // are considered as apps, not extensions.
+    let hasWebappManifest = aZipReader.hasEntry("manifest.webapp");
+    let hasJsonManifest = aZipReader.hasEntry("manifest.json");
+
+    if (!hasWebappManifest && !hasJsonManifest) {
       throw "MISSING_MANIFEST";
     }
 
-    let istream = aZipReader.getInputStream("manifest.webapp");
+    let istream =
+      aZipReader.getInputStream(hasWebappManifest ? "manifest.webapp"
+                                                  : "manifest.json");
 
     // Obtain a converter to read from a UTF-8 encoded input stream.
     let converter = Cc["@mozilla.org/intl/scriptableunicodeconverter"]
@@ -3765,6 +3714,14 @@ this.DOMApplicationRegistry = {
 
     let newManifest = JSON.parse(converter.ConvertToUnicode(
           NetUtil.readInputStreamToString(istream, istream.available()) || ""));
+
+    if (!hasWebappManifest) {
+      // Validate the extension manifest, and convert it.
+      if (!UserCustomizations.checkExtensionManifest(newManifest)) {
+        throw "INVALID_MANIFEST";
+      }
+      newManifest = UserCustomizations.convertManifest(newManifest);
+    }
 
     if (!AppsUtils.checkManifest(newManifest, aOldApp)) {
       throw "INVALID_MANIFEST";
@@ -3809,8 +3766,11 @@ this.DOMApplicationRegistry = {
     let isLangPack = newManifest.role === "langpack" &&
                      (aIsSigned || allowUnsignedLangpack);
 
+    let isAddon = newManifest.role === "addon" &&
+                     (aIsSigned || AppsUtils.allowUnsignedAddons);
+
     let status = AppsUtils.getAppManifestStatus(newManifest);
-    if (status > maxStatus && !isLangPack) {
+    if (status > maxStatus && !isLangPack && !isAddon) {
       throw "INVALID_SECURITY_LEVEL";
     }
 
@@ -4120,7 +4080,7 @@ this.DOMApplicationRegistry = {
     if (supportSystemMessages()) {
       this._unregisterActivities(aApp.manifest, aApp);
     }
-    UserCustomizations.unregister(aApp.manifest, aApp);
+    UserCustomizations.unregister(aApp);
     Langpacks.unregister(aApp, aApp.manifest);
 
     let dir = this._getAppDir(id);
@@ -4540,10 +4500,11 @@ this.DOMApplicationRegistry = {
     });
 
     // Update customization.
-    this.getManifestFor(app.manifestURL).then((aManifest) => {
-      app.enabled ? UserCustomizations.register(aManifest, app)
-                  : UserCustomizations.unregister(aManifest, app);
-    });
+    if (app.enabled) {
+      UserCustomizations.register(app);
+    } else {
+      UserCustomizations.unregister(app);
+    }
   },
 
   getManifestFor: function(aManifestURL, aEntryPoint) {
