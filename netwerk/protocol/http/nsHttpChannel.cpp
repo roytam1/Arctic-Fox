@@ -483,7 +483,10 @@ nsHttpChannel::ContinueConnect()
                 event->Revoke();
             }
 
-            AccumulateCacheHitTelemetry(kCacheHit);
+            // Don't accumulate the cache hit telemetry for intercepted channels.
+            if (mInterceptCache != INTERCEPTED) {
+                AccumulateCacheHitTelemetry(kCacheHit);
+            }
 
             return rv;
         }
@@ -1645,7 +1648,7 @@ nsHttpChannel::ProcessResponse()
     // happen after OnExamineResponse.
     if (!mTransaction->ProxyConnectFailed() && (httpStatus != 407)) {
         SetCookie(mResponseHead->PeekHeader(nsHttp::Set_Cookie));
-        if (httpStatus < 500) {
+        if ((httpStatus < 500) && (httpStatus != 421)) {
             ProcessAltService();
         }
     }
@@ -1941,7 +1944,7 @@ nsHttpChannel::ContinueProcessNormal(nsresult rv)
     if (NS_FAILED(rv)) return rv;
 
     // install cache listener if we still have a cache entry open
-    if (mCacheEntry && !mLoadedFromApplicationCache) {
+    if (mCacheEntry && !mCacheEntryIsReadOnly) {
         rv = InstallCacheListener();
         if (NS_FAILED(rv)) return rv;
     }
@@ -6197,7 +6200,11 @@ nsHttpChannel::RetargetDeliveryTo(nsIEventTarget* aNewTarget)
         NS_WARNING("Retargeting delivery to same thread");
         return NS_OK;
     }
-    NS_ENSURE_TRUE(mTransactionPump || mCachePump, NS_ERROR_NOT_AVAILABLE);
+    if (!mTransactionPump && !mCachePump) {
+        LOG(("nsHttpChannel::RetargetDeliveryTo %p %p no pump available\n",
+             this, aNewTarget));
+        return NS_ERROR_NOT_AVAILABLE;
+    }
 
     nsresult rv = NS_OK;
     // If both cache pump and transaction pump exist, we're probably dealing
