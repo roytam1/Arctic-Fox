@@ -945,9 +945,9 @@ WinUtils::GetIsMouseFromTouch(EventMessage aEventMessage)
 {
   const uint32_t MOZ_T_I_SIGNATURE = TABLET_INK_TOUCH | TABLET_INK_SIGNATURE;
   const uint32_t MOZ_T_I_CHECK_TCH = TABLET_INK_TOUCH | TABLET_INK_CHECK;
-  return ((aEventMessage == NS_MOUSE_MOVE ||
-           aEventMessage == NS_MOUSE_BUTTON_DOWN ||
-           aEventMessage == NS_MOUSE_BUTTON_UP ||
+  return ((aEventMessage == eMouseMove ||
+           aEventMessage == eMouseDown ||
+           aEventMessage == eMouseUp ||
            aEventMessage == NS_MOUSE_DOUBLECLICK) &&
          (GetMessageExtraInfo() & MOZ_T_I_SIGNATURE) == MOZ_T_I_CHECK_TCH);
 }
