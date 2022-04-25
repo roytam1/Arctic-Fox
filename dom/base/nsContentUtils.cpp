@@ -5459,7 +5459,7 @@ nsContentUtils::SetDataTransferInEvent(WidgetDragEvent* aDragEvent)
   // created before the event fires, so it should already be set. For other
   // drag events, get the object from the drag session.
   NS_ASSERTION(aDragEvent->mMessage != NS_DRAGDROP_GESTURE &&
-               aDragEvent->mMessage != NS_DRAGDROP_START,
+               aDragEvent->mMessage != eDragStart,
                "draggesture event created without a dataTransfer");
 
   nsCOMPtr<nsIDragSession> dragSession = GetDragSession();
@@ -5486,7 +5486,7 @@ nsContentUtils::SetDataTransferInEvent(WidgetDragEvent* aDragEvent)
   }
 
   bool isCrossDomainSubFrameDrop = false;
-  if (aDragEvent->mMessage == NS_DRAGDROP_DROP ||
+  if (aDragEvent->mMessage == eDrop ||
       aDragEvent->mMessage == NS_DRAGDROP_DRAGDROP) {
     isCrossDomainSubFrameDrop = CheckForSubFrameDrop(dragSession, aDragEvent);
   }
@@ -5508,7 +5508,7 @@ nsContentUtils::SetDataTransferInEvent(WidgetDragEvent* aDragEvent)
     aDragEvent->dataTransfer->GetEffectAllowedInt(&effectAllowed);
     aDragEvent->dataTransfer->SetDropEffectInt(FilterDropEffect(action, effectAllowed));
   }
-  else if (aDragEvent->mMessage == NS_DRAGDROP_DROP ||
+  else if (aDragEvent->mMessage == eDrop ||
            aDragEvent->mMessage == NS_DRAGDROP_DRAGDROP ||
            aDragEvent->mMessage == NS_DRAGDROP_END) {
     // For the drop and dragend events, set the drop effect based on the
@@ -7837,7 +7837,7 @@ nsContentUtils::SendMouseEvent(nsCOMPtr<nsIPresShell> aPresShell,
   else if (aType.EqualsLiteral("mouseout"))
     msg = eMouseExitFromWidget;
   else if (aType.EqualsLiteral("contextmenu")) {
-    msg = NS_CONTEXTMENU;
+    msg = eContextMenu;
     contextMenuKey = (aButton == 0);
   } else if (aType.EqualsLiteral("MozMouseHittest"))
     msg = eMouseHitTest;
