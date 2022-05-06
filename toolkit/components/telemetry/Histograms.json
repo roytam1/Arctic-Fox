@@ -7389,5 +7389,12 @@
     "high": "100",
     "n_buckets": "20",
     "description": "Proportion (%) of reschedulings of the main process to another CPU during the execution of code inside a JS compartment. Updated while we are measuring jank."
+  },
+  "WEAVE_FXA_KEY_FETCH_ERRORS": {
+    "alert_emails": ["fx-team@mozilla.com"],
+    "expires_in_version": "45",
+    "kind": "count",
+    "releaseChannelCollection": "opt-out",
+    "description": "Errors encountered fetching Sync keys, including network errors."
   }
 }

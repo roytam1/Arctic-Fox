@@ -1276,10 +1276,9 @@ pref("geo.provider.use_corelocation", true);
 // currently irrelevant for desktop e10s
 pref("network.disable.ipc.security", true);
 
-// Disable ReadingList by default.
-pref("browser.readinglist.enabled", false);
-pref("readinglist.scheduler.enabled", false);
-pref("readinglist.server", "https://readinglist.services.mozilla.com/v1");
+
+// Whether we display profile images in the UI or not.
+pref("identity.fxaccounts.profile_image.enabled", true);
 
 pref("browser.translation.detectLanguage", false);
 pref("browser.translation.neverForLanguages", "");
@@ -1305,6 +1304,9 @@ pref("dom.serviceWorkers.interception.enabled", true);
 
 // Disable reader mode by default.
 pref("reader.parse-on-load.enabled", false);
+
+// Token server used by the FxA Sync identity.
+pref("identity.sync.tokenserver.uri", "https://token.services.mozilla.com/1.0/sync/1.5");
 
 // ****************** domain-specific UAs ******************
 
