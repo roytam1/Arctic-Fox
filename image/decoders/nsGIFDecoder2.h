@@ -34,6 +34,9 @@ private:
   // Decoders should only be instantiated via DecoderFactory.
   explicit nsGIFDecoder2(RasterImage* aImage);
 
+  uint8_t*  GetCurrentRowBuffer();
+  uint8_t*  GetRowBuffer(uint32_t aRow);
+
   // These functions will be called when the decoder has a decoded row,
   // frame size information, etc.
   void      BeginGIF();
@@ -67,6 +70,7 @@ private:
   bool mSawTransparency;
 
   gif_struct mGIFStruct;
+  Maybe<Deinterlacer> mDeinterlacer;
 };
 
 } // namespace image

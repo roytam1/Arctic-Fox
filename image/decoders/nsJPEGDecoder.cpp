@@ -136,25 +136,11 @@ nsJPEGDecoder::SpeedHistogram()
   return Telemetry::IMAGE_DECODE_SPEED_JPEG;
 }
 
-nsresult
-nsJPEGDecoder::SetTargetSize(const nsIntSize& aSize)
-{
-  // Make sure the size is reasonable.
-  if (MOZ_UNLIKELY(aSize.width <= 0 || aSize.height <= 0)) {
-    return NS_ERROR_FAILURE;
-  }
-
-  // Create a downscaler that we'll filter our output through.
-  mDownscaler.emplace(aSize);
-
-  return NS_OK;
-}
-
 void
 nsJPEGDecoder::InitInternal()
 {
   mCMSMode = gfxPlatform::GetCMSMode();
-  if (GetDecodeFlags() & imgIContainer::FLAG_DECODE_NO_COLORSPACE_CONVERSION) {
+  if (GetSurfaceFlags() & SurfaceFlags::NO_COLORSPACE_CONVERSION) {
     mCMSMode = eCMSMode_Off;
   }
 
@@ -721,16 +707,16 @@ nsJPEGDecoder::OutputScanlines(bool* suspend)
       }
   }
 
-  if (top != mInfo.output_scanline) {
+  if (mDownscaler && mDownscaler->HasInvalidation()) {
+    DownscalerInvalidRect invalidRect = mDownscaler->TakeInvalidRect();
+    PostInvalidation(invalidRect.mOriginalSizeRect,
+                     Some(invalidRect.mTargetSizeRect));
+    MOZ_ASSERT(!mDownscaler->HasInvalidation());
+  } else if (!mDownscaler && top != mInfo.output_scanline) {
     PostInvalidation(nsIntRect(0, top,
                                mInfo.output_width,
-                               mInfo.output_scanline - top),
-                     mDownscaler ? Some(mDownscaler->TakeInvalidRect())
-                                 : Nothing());
+                               mInfo.output_scanline - top));
   }
-
-  MOZ_ASSERT(!mDownscaler || !mDownscaler->HasInvalidation(),
-             "Didn't send downscaler's invalidation");
 }
 
 // Override the standard error method in the IJG JPEG decoder code.

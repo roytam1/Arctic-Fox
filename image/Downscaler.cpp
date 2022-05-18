@@ -27,6 +27,7 @@ Downscaler::Downscaler(const nsIntSize& aTargetSize)
   , mYFilter(MakeUnique<skia::ConvolutionFilter1D>())
   , mWindowCapacity(0)
   , mHasAlpha(true)
+  , mFlipVertically(false)
 {
   MOZ_ASSERT(gfxPrefs::ImageDownscaleDuringDecodeEnabled(),
              "Downscaling even though downscale-during-decode is disabled?");
@@ -57,7 +58,8 @@ Downscaler::ReleaseWindow()
 nsresult
 Downscaler::BeginFrame(const nsIntSize& aOriginalSize,
                        uint8_t* aOutputBuffer,
-                       bool aHasAlpha)
+                       bool aHasAlpha,
+                       bool aFlipVertically /* = false */)
 {
   MOZ_ASSERT(aOutputBuffer);
   MOZ_ASSERT(mTargetSize != aOriginalSize,
@@ -70,8 +72,11 @@ Downscaler::BeginFrame(const nsIntSize& aOriginalSize,
              "Invalid original size");
 
   mOriginalSize = aOriginalSize;
+  mScale = gfxSize(double(mOriginalSize.width) / mTargetSize.width,
+                   double(mOriginalSize.height) / mTargetSize.height);
   mOutputBuffer = aOutputBuffer;
   mHasAlpha = aHasAlpha;
+  mFlipVertically = aFlipVertically;
 
   ResetForNextProgressivePass();
   ReleaseWindow();
@@ -149,6 +154,16 @@ GetFilterOffsetAndLength(UniquePtr<skia::ConvolutionFilter1D>& aFilter,
 }
 
 void
+Downscaler::ClearRow(uint32_t aStartingAtCol)
+{
+  MOZ_ASSERT(int64_t(mOriginalSize.width) > int64_t(aStartingAtCol));
+  uint32_t bytesToClear = (mOriginalSize.width - aStartingAtCol)
+                        * sizeof(uint32_t);
+  memset(mRowBuffer.get() + (aStartingAtCol * sizeof(uint32_t)),
+         0, bytesToClear);
+}
+
+void
 Downscaler::CommitRow()
 {
   MOZ_ASSERT(mOutputBuffer, "Should have a current frame");
@@ -192,17 +207,34 @@ Downscaler::HasInvalidation() const
   return mCurrentOutLine > mPrevInvalidatedLine;
 }
 
-nsIntRect
+DownscalerInvalidRect
 Downscaler::TakeInvalidRect()
 {
   if (MOZ_UNLIKELY(!HasInvalidation())) {
-    return nsIntRect();
+    return DownscalerInvalidRect();
   }
 
-  nsIntRect invalidRect(0, mPrevInvalidatedLine,
-                        mTargetSize.width,
-                        mCurrentOutLine - mPrevInvalidatedLine);
+  DownscalerInvalidRect invalidRect;
+
+  // Compute the target size invalid rect.
+  if (mFlipVertically) {
+    // We need to flip it. This will implicitly flip the original size invalid
+    // rect, since we compute it by scaling this rect.
+    invalidRect.mTargetSizeRect =
+      IntRect(0, mTargetSize.height - mCurrentOutLine,
+              mTargetSize.width, mCurrentOutLine - mPrevInvalidatedLine);
+  } else {
+    invalidRect.mTargetSizeRect =
+      IntRect(0, mPrevInvalidatedLine,
+              mTargetSize.width, mCurrentOutLine - mPrevInvalidatedLine);
+  }
+
   mPrevInvalidatedLine = mCurrentOutLine;
+
+  // Compute the original size invalid rect.
+  invalidRect.mOriginalSizeRect = invalidRect.mTargetSizeRect;
+  invalidRect.mOriginalSizeRect.ScaleRoundOut(mScale.width, mScale.height);
+
   return invalidRect;
 }
 
@@ -221,8 +253,13 @@ Downscaler::DownscaleInputLine()
   auto filterValues =
     mYFilter->FilterForValue(mCurrentOutLine, &filterOffset, &filterLength);
 
+  int32_t currentOutLine = mFlipVertically
+                         ? mTargetSize.height - (mCurrentOutLine + 1)
+                         : mCurrentOutLine;
+  MOZ_ASSERT(currentOutLine >= 0);
+
   uint8_t* outputLine =
-    &mOutputBuffer[mCurrentOutLine * mTargetSize.width * sizeof(uint32_t)];
+    &mOutputBuffer[currentOutLine * mTargetSize.width * sizeof(uint32_t)];
   skia::ConvolveVertically(static_cast<const FilterValue*>(filterValues),
                            filterLength, mWindow.get(), mXFilter->num_values(),
                            outputLine, mHasAlpha, supports_sse2());
@@ -247,6 +284,37 @@ Downscaler::DownscaleInputLine()
   mLinesInBuffer = max(mLinesInBuffer, 0);
   for (int32_t i = 0; i < mLinesInBuffer; ++i) {
     swap(mWindow[i], mWindow[filterLength - mLinesInBuffer + i]);
+  }
+}
+
+Deinterlacer::Deinterlacer(const nsIntSize& aImageSize)
+  : mImageSize(aImageSize)
+  , mBuffer(MakeUnique<uint8_t[]>(mImageSize.width *
+                                  mImageSize.height *
+                                  sizeof(uint32_t)))
+{ }
+
+uint32_t
+Deinterlacer::RowSize() const
+{
+  return mImageSize.width * sizeof(uint32_t);
+}
+
+uint8_t*
+Deinterlacer::RowBuffer(uint32_t aRow)
+{
+  uint32_t offset = aRow * RowSize();
+  MOZ_ASSERT(offset < mImageSize.width * mImageSize.height * sizeof(uint32_t),
+             "Row is outside of image");
+  return mBuffer.get() + offset;
+}
+
+void
+Deinterlacer::PropagatePassToDownscaler(Downscaler& aDownscaler)
+{
+  for (int32_t row = 0 ; row < mImageSize.height ; ++row) {
+    memcpy(aDownscaler.RowBuffer(), RowBuffer(row), RowSize());
+    aDownscaler.CommitRow();
   }
 }
 
