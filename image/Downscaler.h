@@ -163,6 +163,7 @@ public:
 #endif // MOZ_ENABLE_SKIA
 
 
+
 } // namespace image
 } // namespace mozilla
 
