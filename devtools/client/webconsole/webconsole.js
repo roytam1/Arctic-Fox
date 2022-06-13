@@ -9,12 +9,12 @@
 const {Cc, Ci, Cu} = require("chrome");
 
 const {Utils: WebConsoleUtils, CONSOLE_WORKER_IDS} = require("devtools/toolkit/webconsole/utils");
+const promise = require("promise");
 
 loader.lazyServiceGetter(this, "clipboardHelper",
                          "@mozilla.org/widget/clipboardhelper;1",
                          "nsIClipboardHelper");
 loader.lazyImporter(this, "Services", "resource://gre/modules/Services.jsm");
-loader.lazyImporter(this, "promise", "resource://gre/modules/Promise.jsm", "Promise");
 loader.lazyGetter(this, "EventEmitter", () => require("devtools/toolkit/event-emitter"));
 loader.lazyGetter(this, "AutocompletePopup",
                   () => require("devtools/shared/autocomplete-popup").AutocompletePopup);
@@ -28,8 +28,8 @@ loader.lazyGetter(this, "Messages",
                   () => require("devtools/webconsole/console-output").Messages);
 loader.lazyGetter(this, "asyncStorage",
                   () => require("devtools/toolkit/shared/async-storage"));
-loader.lazyImporter(this, "EnvironmentClient", "resource://gre/modules/devtools/dbg-client.jsm");
-loader.lazyImporter(this, "ObjectClient", "resource://gre/modules/devtools/dbg-client.jsm");
+loader.lazyRequireGetter(this, "EnvironmentClient", "devtools/toolkit/client/main", true);
+loader.lazyRequireGetter(this, "ObjectClient", "devtools/toolkit/client/main", true);
 loader.lazyImporter(this, "VariablesView", "resource://gre/modules/devtools/VariablesView.jsm");
 loader.lazyImporter(this, "VariablesViewController", "resource://gre/modules/devtools/VariablesViewController.jsm");
 loader.lazyImporter(this, "PluralForm", "resource://gre/modules/PluralForm.jsm");

@@ -1,6 +1,8 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+/* globals gDevTools, DOMHelpers, toolboxStrings, InspectorFront, Selection,
+   CommandUtils, DevToolsUtils, Hosts, osString, showDoorhanger,
    getHighlighterUtils, createPerformanceFront */
 
 "use strict";
@@ -16,7 +18,7 @@ const OS_IS_64_BITS = "DEVTOOLS_OS_IS_64_BITS_PER_USER";
 const SCREENSIZE_HISTOGRAM = "DEVTOOLS_SCREEN_RESOLUTION_ENUMERATED_PER_USER";
 
 let {Cc, Ci, Cu} = require("chrome");
-let {Promise: promise} = require("resource://gre/modules/Promise.jsm");
+let promise = require("promise");
 let EventEmitter = require("devtools/toolkit/event-emitter");
 let Telemetry = require("devtools/shared/telemetry");
 let HUDService = require("devtools/webconsole/hudservice");
@@ -1491,7 +1493,7 @@ Toolbox.prototype = {
     this._host.setTitle(title);
   },
 
-  _listFrames: function (event) {
+  _listFrames: function(event) {
     if (!this._target.activeTab || !this._target.activeTab.traits.frames) {
       // We are not targetting a regular TabActor
       // it can be either an addon or browser toolbox actor

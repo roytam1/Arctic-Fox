@@ -225,7 +225,7 @@ var PerformanceController = {
     ToolbarView.on(EVENTS.PREF_CHANGED, this._onPrefChanged);
     PerformanceView.on(EVENTS.UI_START_RECORDING, this.startRecording);
     PerformanceView.on(EVENTS.UI_STOP_RECORDING, this.stopRecording);
-     PerformanceView.on(EVENTS.UI_RECORDING_IMPORTED, this.importRecording);
+    PerformanceView.on(EVENTS.UI_RECORDING_IMPORTED, this.importRecording);
     PerformanceView.on(EVENTS.UI_CLEAR_RECORDINGS, this.clearRecordings);
     RecordingsView.on(EVENTS.UI_EXPORT_RECORDING, this.exportRecording);
     RecordingsView.on(EVENTS.RECORDING_SELECTED, this._onRecordingSelectFromView);
@@ -606,7 +606,7 @@ var PerformanceController = {
     if (DevToolsUtils.testing) {
       return { supported: true, enabled: true };
     }
-    let supported = SYSTEM.MULTIPROCESS_SUPPORTED;
+    let supported = system.constants.E10S_TESTING_ONLY;
     // This is only checked on tool startup -- requires a restart if
     // e10s subsequently enabled.
     let enabled = this._e10s;

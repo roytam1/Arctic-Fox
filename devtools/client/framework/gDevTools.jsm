@@ -12,19 +12,17 @@ Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
 const { require, loader } = Cu.import("resource://gre/modules/devtools/Loader.jsm", {});
 // Load target and toolbox lazily as they need gDevTools to be fully initialized
+const promise = require("promise");
 loader.lazyRequireGetter(this, "TargetFactory", "devtools/framework/target", true);
 loader.lazyRequireGetter(this, "Toolbox", "devtools/framework/toolbox", true);
 
-XPCOMUtils.defineLazyModuleGetter(this, "promise",
-                                  "resource://gre/modules/Promise.jsm", "Promise");
 XPCOMUtils.defineLazyModuleGetter(this, "console",
                                   "resource://gre/modules/devtools/Console.jsm");
 //XPCOMUtils.defineLazyModuleGetter(this, "CustomizableUI",
 //                                  "resource:///modules/CustomizableUI.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "DebuggerServer",
-                                  "resource://gre/modules/devtools/dbg-server.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "DebuggerClient",
-                                  "resource://gre/modules/devtools/dbg-client.jsm");
+loader.lazyRequireGetter(this, "DebuggerServer", "devtools/server/main", true);
+loader.lazyRequireGetter(this, "DebuggerClient", "devtools/toolkit/client/main", true);
+
 
 const DefaultTools = require("definitions").defaultTools;
 const EventEmitter = require("devtools/toolkit/event-emitter");
@@ -38,7 +36,7 @@ const TABS_PINNED_AVG_HISTOGRAM = "DEVTOOLS_TABS_PINNED_AVERAGE_LINEAR";
 const FORBIDDEN_IDS = new Set(["toolbox", ""]);
 const MAX_ORDINAL = 99;
 
-const bundle = Services.strings.createBundle("chrome://global/locale/devtools/toolbox.properties");
+const bundle = Services.strings.createBundle("chrome://browser/locale/devtools/toolbox.properties");
 
 /**
  * DevTools is a class that represents a set of developer tools, it holds a
@@ -546,8 +544,11 @@ var gDevToolsBrowser = {
     let target = TargetFactory.forTab(gBrowser.selectedTab);
     let toolbox = gDevTools.getToolbox(target);
 
-    toolbox ? toolbox.destroy() : gDevTools.showToolbox(target);
-  },
+    // If a toolbox exists, using toggle from the Main window :
+    // - should close a docked toolbox
+    // - should focus a windowed toolbox
+    let isDocked = toolbox && toolbox.hostType != devtools.Toolbox.HostType.WINDOW;
+    isDocked ? toolbox.destroy() : gDevTools.showToolbox(target);  },
 
   toggleBrowserToolboxCommand: function(gBrowser) {
     let target = TargetFactory.forWindow(gBrowser.ownerDocument.defaultView);
@@ -604,16 +605,16 @@ var gDevToolsBrowser = {
     let appMgrEnabled = Services.prefs.getBoolPref("devtools.appmanager.enabled");
     toggleCmd("Tools:DevAppMgr", !webIDEEnabled && appMgrEnabled);
 
+    // Enable Browser Toolbox?
+    let chromeEnabled = Services.prefs.getBoolPref("devtools.chrome.enabled");
+    let devtoolsRemoteEnabled = Services.prefs.getBoolPref("devtools.debugger.remote-enabled");
+    let remoteEnabled = chromeEnabled && devtoolsRemoteEnabled;
+    toggleCmd("Tools:BrowserToolbox", remoteEnabled);
+    toggleCmd("Tools:BrowserContentToolbox", remoteEnabled && win.gMultiProcessBrowser);
+
     // Enable Error Console?
     let consoleEnabled = Services.prefs.getBoolPref("devtools.errorconsole.enabled");
     toggleCmd("Tools:ErrorConsole", consoleEnabled);
-
-    // Enable Browser Debugger?
-    let chromeEnabled = Services.prefs.getBoolPref("devtools.chrome.enabled");
-    let devtoolsRemoteEnabled = Services.prefs.getBoolPref("devtools.debugger.remote-enabled");
-    let remoteEnabled = chromeEnabled && devtoolsRemoteEnabled &&
-                        Services.prefs.getBoolPref("devtools.debugger.chrome-enabled");
-    toggleCmd("Tools:ChromeDebugger", remoteEnabled);
 
     // Enable DevTools connection screen, if the preference allows this.
     toggleCmd("Tools:DevToolsConnect", devtoolsRemoteEnabled);

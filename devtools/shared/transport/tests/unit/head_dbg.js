@@ -11,8 +11,7 @@ const CC = Components.Constructor;
 const { devtools } =
 const { require } =
   Cu.import("resource://gre/modules/devtools/Loader.jsm", {});
-const { Promise: promise } =
-  Cu.import("resource://gre/modules/Promise.jsm", {});
+const promise = require("promise");
 const { Task } = Cu.import("resource://gre/modules/Task.jsm", {});
 
 const Services = require("Services");
@@ -37,9 +36,8 @@ function tryImport(url) {
   }
 }
 
-tryImport("resource://gre/modules/devtools/dbg-server.jsm");
-tryImport("resource://gre/modules/devtools/dbg-client.jsm");
-tryImport("resource://gre/modules/devtools/Loader.jsm");
+const { DebuggerServer } = require("devtools/server/main");
+const { DebuggerClient } = require("devtools/toolkit/client/main");
 
 function testExceptionHook(ex) {
   try {
