@@ -9,9 +9,9 @@ const { Class } = require("sdk/core/heritage");
 const { emit } = require("sdk/event/core");
 const { EventTarget } = require("sdk/event/target");
 const { merge } = require("sdk/util/object");
-const promise = require("projecteditor/helpers/promise");
-const { InplaceEditor } = require("devtools/shared/inplace-editor");
-const { on, forget } = require("projecteditor/helpers/event");
+const promise = require("promise");
+const { InplaceEditor } = require("devtools/client/shared/inplace-editor");
+const { on, forget } = require("devtools/client/projecteditor/lib/helpers/event");
 const { OS } = Cu.import("resource://gre/modules/osfile.jsm", {});
 
 const HTML_NS = "http://www.w3.org/1999/xhtml";

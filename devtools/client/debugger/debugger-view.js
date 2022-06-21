@@ -34,6 +34,20 @@ const RESIZE_REFRESH_RATE = 50; // ms
 const PROMISE_DEBUGGER_URL =
   "chrome://devtools/content/promisedebugger/promise-debugger.xhtml";
 
+const debuggerControllerEmit = DebuggerController.emit.bind(DebuggerController);
+const createStore = require("devtools/client/shared/redux/create-store")();
+const { combineEmittingReducers } = require("devtools/client/shared/redux/reducers");
+const reducers = require("./content/reducers/index");
+const store = createStore(combineEmittingReducers(reducers, debuggerControllerEmit));
+const { NAME: WAIT_UNTIL_NAME } = require("devtools/client/shared/redux/middleware/wait-service");
+
+const services = {
+  WAIT_UNTIL: WAIT_UNTIL_NAME
+};
+
+const EventListenersView = require('./content/views/event-listeners-view');
+const actions = require('./content/actions/event-listeners');
+
 /**
  * Object defining the debugger view components.
  */
@@ -61,7 +75,6 @@ var DebuggerView = {
     this.Workers.initialize();
     this.Sources.initialize();
     this.VariableBubble.initialize();
-    this.Tracer.initialize();
     this.WatchExpressions.initialize();
     this.EventListeners.initialize();
     this.GlobalSearch.initialize();
@@ -94,7 +107,6 @@ var DebuggerView = {
     this.StackFramesClassicList.destroy();
     this.Sources.destroy();
     this.VariableBubble.destroy();
-    this.Tracer.destroy();
     this.WatchExpressions.destroy();
     this.EventListeners.destroy();
     this.GlobalSearch.destroy();
@@ -177,9 +189,7 @@ var DebuggerView = {
     VariablesViewController.attach(this.Variables, {
       getEnvironmentClient: aObject => gThreadClient.environment(aObject),
       getObjectClient: aObject => {
-        return aObject instanceof DebuggerController.Tracer.WrappedObject
-          ? DebuggerController.Tracer.syncGripClient(aObject.object)
-          : gThreadClient.pauseGrip(aObject)
+        return gThreadClient.pauseGrip(aObject)
       }
     });
 
@@ -222,9 +232,6 @@ var DebuggerView = {
     }
 
     let gutters = ["breakpoints"];
-    if (Services.prefs.getBoolPref("devtools.debugger.tracer")) {
-      gutters.unshift("hit-counts");
-    }
 
     this.editor = new Editor({
       mode: Editor.modes.text,
@@ -417,7 +424,6 @@ var DebuggerView = {
       // source.
       DebuggerView.Sources.selectedValue = aSource.actor;
       DebuggerController.Breakpoints.updateEditorBreakpoints();
-      DebuggerController.HitCounts.updateEditorHitCounts();
 
       // Resolve and notify that a source file was shown.
       window.emit(EVENTS.SOURCE_SHOWN, aSource);
@@ -580,7 +586,7 @@ var DebuggerView = {
    */
   _onInstrumentsPaneTabSelect: function() {
     if (this._instrumentsPane.selectedTab.id == "events-tab") {
-      DebuggerController.Breakpoints.DOM.scheduleEventListenersFetch();
+      store.dispatch(actions.fetchEventListeners());
     }
   },
 
@@ -674,7 +680,6 @@ var DebuggerView = {
   GlobalSearch: null,
   StackFrames: null,
   Sources: null,
-  Tracer: null,
   Variables: null,
   VariableBubble: null,
   WatchExpressions: null,
@@ -843,3 +848,5 @@ ResultsPanelContainer.prototype = Heritage.extend(WidgetMethods, {
   left: 0,
   top: 0
 });
+
+DebuggerView.EventListeners = new EventListenersView(store, DebuggerController);

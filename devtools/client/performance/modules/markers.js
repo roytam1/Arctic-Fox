@@ -3,8 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 "use strict";
 
-const { L10N } = require("devtools/performance/global");
-const { Formatters, CollapseFunctions } = require("devtools/performance/marker-utils");
+const { L10N } = require("devtools/client/performance/modules/global");
+const { Formatters } = require("devtools/client/performance/modules/logic/marker-utils");
 
 /**
  * A simple schema for mapping markers to the timeline UI. The keys correspond
@@ -21,7 +21,7 @@ const { Formatters, CollapseFunctions } = require("devtools/performance/marker-u
  * - colorName: The label of the DevTools color used for this marker. If
  *              adding a new color, be sure to check that there's an entry
  *              for `.marker-details-bullet.{COLORNAME}` for the equivilent
- *              entry in ./browser/themes/shared/devtools/performance.inc.css
+ *              entry in ./devtools/client/themes/performance.inc.css
  *              https://developer.mozilla.org/en-US/docs/Tools/DevToolsColors
  * - collapseFunc: A function determining how markers are collapsed together.
  *                 Invoked with 3 arguments: the current parent marker, the

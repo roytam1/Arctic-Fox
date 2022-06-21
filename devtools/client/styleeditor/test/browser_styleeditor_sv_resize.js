@@ -2,9 +2,9 @@
 /* Any copyright is dedicated to the Public Domain.
    http://creativecommons.org/publicdomain/zero/1.0/ */
 
-const TESTCASE_URI = TEST_BASE + "simple.html";
+const TESTCASE_URI = TEST_BASE_HTTP + "simple.html";
 
-const {Toolbox} = require("devtools/framework/toolbox");
+const {Toolbox} = require("devtools/client/framework/toolbox");
 
 let gOriginalWidth; // these are set by runTests()
 let gOriginalHeight;

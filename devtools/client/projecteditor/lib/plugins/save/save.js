@@ -5,9 +5,9 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 const { Class } = require("sdk/core/heritage");
-const { registerPlugin, Plugin } = require("projecteditor/plugins/core");
-const picker = require("projecteditor/helpers/file-picker");
-const { getLocalizedString } = require("projecteditor/helpers/l10n");
+const { registerPlugin, Plugin } = require("devtools/client/projecteditor/lib/plugins/core");
+const picker = require("devtools/client/projecteditor/lib/helpers/file-picker");
+const { getLocalizedString } = require("devtools/client/projecteditor/lib/helpers/l10n");
 
 // Handles the save command.
 var SavePlugin = Class({
@@ -46,7 +46,7 @@ var SavePlugin = Class({
 
   onCommand: function(cmd) {
     if (cmd === "cmd-save") {
-      this.save();
+      this.onEditorSaveRequested();
     } else if (cmd === "cmd-saveas") {
       this.saveAs();
     }
@@ -71,7 +71,7 @@ var SavePlugin = Class({
     }).then(null, console.error);
   },
 
-  save: function() {
+  onEditorSaveRequested: function() {
     let editor = this.host.currentEditor;
     let resource = this.host.resourceFor(editor);
     if (!resource) {

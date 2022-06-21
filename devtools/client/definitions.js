@@ -59,7 +59,7 @@ Tools.options = {
   id: "options",
   ordinal: 0,
   url: "chrome://devtools/content/framework/toolbox-options.xul",
-  icon: "chrome://devtools/skin/devtools/tool-options.svg",
+  icon: "chrome://devtools/skin/themes/images/tool-options.svg",
   invertIconForLightTheme: true,
   bgTheme: "theme-body",
   label: l10n("options.label", toolboxStrings),
@@ -83,17 +83,20 @@ Tools.inspector = {
   key: l10n("inspector.commandkey", inspectorStrings),
   ordinal: 1,
   modifiers: osString == "Darwin" ? "accel,alt" : "accel,shift",
-  icon: "chrome://global/skin/devtools/tool-inspector.svg",
+  icon: "chrome://devtools/skin/themes/images/tool-inspector.svg",
   invertIconForLightTheme: true,
   url: "chrome://devtools/content/inspector/inspector.xul",
   label: l10n("inspector.label", inspectorStrings),
   panelLabel: l10n("inspector.panelLabel", inspectorStrings),
-  tooltip: l10n("inspector.tooltip", inspectorStrings),
+  get tooltip() {
+    return l10n("inspector.tooltip2", inspectorStrings,
+    ( osString == "Darwin" ? "Cmd+Alt" : "Ctrl+Shift+" ) + this.key);
+  },
   inMenu: true,
   commands: [
-    "devtools/resize-commands",
-    "devtools/inspector/inspector-commands",
-    "devtools/eyedropper/commands.js"
+    "devtools/client/responsivedesign/resize-commands",
+    "devtools/client/inspector/inspector-commands",
+    "devtools/client/eyedropper/commands.js"
   ],
 
   preventClosingOnKey: true,
@@ -116,15 +119,18 @@ Tools.webConsole = {
   accesskey: l10n("webConsoleCmd.accesskey", webConsoleStrings),
   modifiers: Services.appinfo.OS == "Darwin" ? "accel,alt" : "accel,shift",
   ordinal: 2,
-  icon: "chrome://global/skin/devtools/tool-webconsole.svg",
+  icon: "chrome://devtools/skin/themes/images/tool-webconsole.svg",
   invertIconForLightTheme: true,
   url: "chrome://devtools/content/webconsole/webconsole.xul",
   label: l10n("ToolboxTabWebconsole.label", webConsoleStrings),
   menuLabel: l10n("MenuWebconsole.label", webConsoleStrings),
   panelLabel: l10n("ToolboxWebConsole.panelLabel", webConsoleStrings),
-  tooltip: l10n("ToolboxWebconsole.tooltip", webConsoleStrings),
+  get tooltip() {
+    return l10n("ToolboxWebconsole.tooltip2", webConsoleStrings,
+    ( osString == "Darwin" ? "Cmd+Alt" : "Ctrl+Shift+" ) + this.key);
+  },
   inMenu: true,
-  commands: "devtools/webconsole/console-commands",
+  commands: "devtools/client/webconsole/console-commands",
 
   preventClosingOnKey: true,
   onkey: function(panel, toolbox) {
@@ -149,15 +155,18 @@ Tools.jsdebugger = {
   accesskey: l10n("debuggerMenu.accesskey", debuggerStrings),
   modifiers: osString == "Darwin" ? "accel,alt" : "accel,shift",
   ordinal: 3,
-  icon: "chrome://global/skin/devtools/tool-debugger.svg",
+  icon: "chrome://devtools/skin/themes/images/tool-debugger.svg",
   invertIconForLightTheme: true,
-  highlightedicon: "chrome://global/skin/devtools/tool-debugger-paused.svg",
+  highlightedicon: "chrome://devtools/skin/themes/images/tool-debugger-paused.svg",
   url: "chrome://devtools/content/debugger/debugger.xul",
   label: l10n("ToolboxDebugger.label", debuggerStrings),
   panelLabel: l10n("ToolboxDebugger.panelLabel", debuggerStrings),
-  tooltip: l10n("ToolboxDebugger.tooltip", debuggerStrings),
+  get tooltip() {
+    return l10n("ToolboxDebugger.tooltip2", debuggerStrings,
+    ( osString == "Darwin" ? "Cmd+Alt" : "Ctrl+Shift+" ) + this.key);
+  },
   inMenu: true,
-  commands: "devtools/debugger/debugger-commands",
+  commands: "devtools/client/debugger/debugger-commands",
 
   isTargetSupported: function(target) {
     return true;
@@ -174,14 +183,17 @@ Tools.styleEditor = {
   ordinal: 4,
   accesskey: l10n("open.accesskey", styleEditorStrings),
   modifiers: "shift",
-  icon: "chrome://global/skin/devtools/tool-styleeditor.svg",
+  icon: "chrome://devtools/skin/themes/images/tool-styleeditor.svg",
   invertIconForLightTheme: true,
   url: "chrome://devtools/content/styleeditor/styleeditor.xul",
   label: l10n("ToolboxStyleEditor.label", styleEditorStrings),
   panelLabel: l10n("ToolboxStyleEditor.panelLabel", styleEditorStrings),
-  tooltip: l10n("ToolboxStyleEditor.tooltip2", styleEditorStrings),
+  get tooltip() {
+    return l10n("ToolboxStyleEditor.tooltip3", styleEditorStrings,
+    "Shift+" + functionkey(this.key));
+  },
   inMenu: true,
-  commands: "devtools/styleeditor/styleeditor-commands",
+  commands: "devtools/client/styleeditor/styleeditor-commands",
 
   isTargetSupported: function(target) {
     return target.hasActor("styleEditor") || target.hasActor("styleSheets");
@@ -196,7 +208,7 @@ Tools.shaderEditor = {
   id: "shadereditor",
   ordinal: 5,
   visibilityswitch: "devtools.shadereditor.enabled",
-  icon: "chrome://global/skin/devtools/tool-styleeditor.svg",
+  icon: "chrome://devtools/skin/themes/images/tool-shadereditor.svg",
   invertIconForLightTheme: true,
   url: "chrome://devtools/content/shadereditor/shadereditor.xul",
   label: l10n("ToolboxShaderEditor.label", shaderEditorStrings),
@@ -216,7 +228,7 @@ Tools.canvasDebugger = {
   id: "canvasdebugger",
   ordinal: 6,
   visibilityswitch: "devtools.canvasdebugger.enabled",
-  icon: "chrome://global/skin/devtools/tool-styleeditor.svg",
+  icon: "chrome://devtools/skin/themes/images/tool-styleeditor.svg",
   invertIconForLightTheme: true,
   url: "chrome://devtools/content/canvasdebugger/canvasdebugger.xul",
   label: l10n("ToolboxCanvasDebugger.label", canvasDebuggerStrings),
@@ -237,14 +249,17 @@ Tools.canvasDebugger = {
 Tools.performance = {
   id: "performance",
   ordinal: 7,
-  icon: "chrome://global/skin/devtools/tool-profiler.svg",
+  icon: "chrome://devtools/skin/themes/images/tool-profiler.svg",
   invertIconForLightTheme: true,
-  highlightedicon: "chrome://browser/skin/devtools/tool-profiler-active.svg",
+  highlightedicon: "chrome://devtools/skin/themes/images/tool-profiler-active.svg",
   url: "chrome://devtools/content/performance/performance.xul",
   visibilityswitch: "devtools.performance.enabled",
   label: l10n("profiler.label2", profilerStrings),
   panelLabel: l10n("profiler.panelLabel2", profilerStrings),
-  tooltip: l10n("profiler.tooltip2", profilerStrings),
+  get tooltip() {
+    return l10n("profiler.tooltip3", profilerStrings,
+    "Shift+" + functionkey(this.key));
+  },
   accesskey: l10n("profiler.accesskey", profilerStrings),
   key: l10n("profiler.commandkey2", profilerStrings),
   modifiers: "shift",
@@ -266,12 +281,15 @@ Tools.netMonitor = {
   ordinal: 9,
   modifiers: osString == "Darwin" ? "accel,alt" : "accel,shift",
   visibilityswitch: "devtools.netmonitor.enabled",
-  icon: "chrome://global/skin/devtools/tool-network.svg",
+  icon: "chrome://devtools/skin/themes/images/tool-network.svg",
   invertIconForLightTheme: true,
   url: "chrome://devtools/content/netmonitor/netmonitor.xul",
   label: l10n("netmonitor.label", netMonitorStrings),
   panelLabel: l10n("netmonitor.panelLabel", netMonitorStrings),
-  tooltip: l10n("netmonitor.tooltip", netMonitorStrings),
+  get tooltip() {
+    return l10n("netmonitor.tooltip2", netMonitorStrings,
+    ( osString == "Darwin" ? "Cmd+Alt" : "Ctrl+Shift+" ) + this.key);
+  },
   inMenu: true,
 
   isTargetSupported: function(target) {
@@ -290,13 +308,16 @@ Tools.storage = {
   accesskey: l10n("storage.accesskey", storageStrings),
   modifiers: "shift",
   visibilityswitch: "devtools.storage.enabled",
-  icon: "chrome://global/skin/devtools/tool-storage.svg",
+  icon: "chrome://devtools/skin/themes/images/tool-storage.svg",
   invertIconForLightTheme: true,
   url: "chrome://devtools/content/storage/storage.xul",
   label: l10n("storage.label", storageStrings),
   menuLabel: l10n("storage.menuLabel", storageStrings),
   panelLabel: l10n("storage.panelLabel", storageStrings),
-  tooltip: l10n("storage.tooltip2", storageStrings),
+  get tooltip() {
+    return l10n("storage.tooltip3", storageStrings,
+    "Shift+" + functionkey(this.key));
+  },
   inMenu: true,
 
   isTargetSupported: function(target) {
@@ -314,7 +335,7 @@ Tools.webAudioEditor = {
   id: "webaudioeditor",
   ordinal: 11,
   visibilityswitch: "devtools.webaudioeditor.enabled",
-  icon: "chrome://global/skin/devtools/tool-webaudio.svg",
+  icon: "chrome://devtools/skin/themes/images/tool-webaudio.svg",
   invertIconForLightTheme: true,
   url: "chrome://devtools/content/webaudioeditor/webaudioeditor.xul",
   label: l10n("ToolboxWebAudioEditor1.label", webAudioEditorStrings),
@@ -334,14 +355,14 @@ Tools.scratchpad = {
   id: "scratchpad",
   ordinal: 12,
   visibilityswitch: "devtools.scratchpad.enabled",
-  icon: "chrome://global/skin/devtools/tool-scratchpad.svg",
+  icon: "chrome://devtools/skin/themes/images/tool-scratchpad.svg",
   invertIconForLightTheme: true,
   url: "chrome://devtools/content/scratchpad/scratchpad.xul",
   label: l10n("scratchpad.label", scratchpadStrings),
   panelLabel: l10n("scratchpad.panelLabel", scratchpadStrings),
   tooltip: l10n("scratchpad.tooltip", scratchpadStrings),
   inMenu: false,
-  commands: "devtools/scratchpad/scratchpad-commands",
+  commands: "devtools/client/scratchpad/scratchpad-commands",
 
   isTargetSupported: function(target) {
     return target.isRemote;
@@ -373,7 +394,7 @@ Tools.darkTheme = {
   id: "dark",
   label: l10n("options.darkTheme.label", toolboxStrings),
   ordinal: 1,
-  stylesheets: ["chrome://global/skin/devtools/dark-theme.css"],
+  stylesheets: ["chrome://devtools/skin/themes/dark-theme.css"],
   classList: ["theme-dark"],
 };
 
@@ -381,7 +402,7 @@ Tools.lightTheme = {
   id: "light",
   label: l10n("options.lightTheme.label", toolboxStrings),
   ordinal: 2,
-  stylesheets: ["chrome://global/skin/devtools/light-theme.css"],
+  stylesheets: ["chrome://devtools/skin/themes/light-theme.css"],
   classList: ["theme-light"],
 };
 
@@ -399,12 +420,18 @@ exports.defaultThemes = [
  *        The key to lookup.
  * @returns A localized version of the given key.
  */
-function l10n(name, bundle)
+function l10n(name, bundle, arg)
 {
   try {
-    return bundle.GetStringFromName(name);
+    return arg ? bundle.formatStringFromName(name, [arg], 1)
+    : bundle.GetStringFromName(name);
   } catch (ex) {
     Services.console.logStringMessage("Error reading '" + name + "'");
     throw new Error("l10n error with " + name);
   }
+}
+
+function functionkey(shortkey)
+{
+  return shortkey.split("_")[1];
 }

@@ -3,7 +3,7 @@
 
 // Tests that the appcache commands works as they should
 
-const TEST_URI = "http://sub1.test2.example.com/browser/browser/devtools/" +
+const TEST_URI = "http://sub1.test2.example.com/browser/devtools/client/" +
                  "commandline/test/browser_cmd_appcache_valid_index.html";
 
 function test() {
@@ -89,7 +89,7 @@ function* spawnTest() {
         output: [ /page1/, /page2/, /page3/ ]
       },
       post: function(output, text) {
-        ok(!text.contains("index"), "index is not contained in output");
+        ok(!text.includes("index"), "index is not contained in output");
       }
     },
 
@@ -110,8 +110,8 @@ function* spawnTest() {
       setup: 'appcache validate ' + TEST_URI,
       check: {
         input:  'appcache validate ' + TEST_URI,
-              // appcache validate http://sub1.test2.example.com/browser/browser/devtools/commandline/test/browser_cmd_appcache_valid_index.html
-        markup: 'VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV',
+              // appcache validate http://sub1.test2.example.com/browser/devtools/client/commandline/test/browser_cmd_appcache_valid_index.html
+        markup: 'VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV',
         status: 'VALID',
         args: {
           uri: {
@@ -149,10 +149,10 @@ function* spawnTest() {
         output: [ /no results/ ]
       },
       post: function(output, text) {
-        ok(!text.contains("index"), "index is not contained in output");
-        ok(!text.contains("page1"), "page1 is not contained in output");
-        ok(!text.contains("page2"), "page1 is not contained in output");
-        ok(!text.contains("page3"), "page1 is not contained in output");
+        ok(!text.includes("index"), "index is not contained in output");
+        ok(!text.includes("page1"), "page1 is not contained in output");
+        ok(!text.includes("page2"), "page1 is not contained in output");
+        ok(!text.includes("page3"), "page1 is not contained in output");
       }
     },
 
@@ -160,8 +160,8 @@ function* spawnTest() {
       setup: 'appcache viewentry --key ' + TEST_URI,
       check: {
         input:  'appcache viewentry --key ' + TEST_URI,
-              // appcache viewentry --key http://sub1.test2.example.com/browser/browser/devtools/commandline/test/browser_cmd_appcache_valid_index.html
-        markup: 'VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV',
+              // appcache viewentry --key http://sub1.test2.example.com/browser/devtools/client/commandline/test/browser_cmd_appcache_valid_index.html
+        markup: 'VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV',
         status: 'VALID',
         args: {}
       },

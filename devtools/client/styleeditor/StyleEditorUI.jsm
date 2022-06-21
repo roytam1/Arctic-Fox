@@ -16,20 +16,20 @@ Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/NetUtil.jsm");
 Cu.import("resource://gre/modules/osfile.jsm");
 Cu.import("resource://gre/modules/Task.jsm");
-Cu.import("resource:///modules/devtools/event-emitter.js");
-Cu.import("resource:///modules/devtools/gDevTools.jsm");
-Cu.import("resource:///modules/devtools/StyleEditorUtil.jsm");
-Cu.import("resource:///modules/devtools/SplitView.jsm");
-Cu.import("resource:///modules/devtools/StyleSheetEditor.jsm");
-const promise = require("promise");
+Cu.import("resource://gre/modules/devtools/shared/event-emitter.js");
+Cu.import("resource:///modules/devtools/client/framework/gDevTools.jsm");
+Cu.import("resource:///modules/devtools/client/styleeditor/StyleEditorUtil.jsm");
+Cu.import("resource:///modules/devtools/client/shared/SplitView.jsm");
+Cu.import("resource:///modules/devtools/client/styleeditor/StyleSheetEditor.jsm");
 
 XPCOMUtils.defineLazyModuleGetter(this, "PluralForm",
                                   "resource://gre/modules/PluralForm.jsm");
 
-const { require } = Cu.import("resource://gre/modules/devtools/Loader.jsm", {});
-const { PrefObserver, PREF_ORIG_SOURCES } = require("devtools/styleeditor/utils");
+const { require } = Cu.import("resource://gre/modules/devtools/shared/Loader.jsm", {});
+const { PrefObserver, PREF_ORIG_SOURCES } = require("devtools/client/styleeditor/utils");
 const csscoverage = require("devtools/server/actors/csscoverage");
-const console = require("resource://gre/modules/devtools/Console.jsm").console;
+const console = require("resource://gre/modules/devtools/shared/Console.jsm").console;
+const promise = require("promise");
 
 const LOAD_ERROR = "error-load";
 const STYLE_EDITOR_TEMPLATE = "stylesheet";
@@ -446,13 +446,15 @@ StyleEditorUI.prototype = {
    *         Editor to create UI for.
    */
   _sourceLoaded: function(editor) {
+    let ordinal = editor.styleSheet.styleSheetIndex;
+    ordinal = ordinal == -1 ? Number.MAX_SAFE_INTEGER : ordinal;
     // add new sidebar item and editor to the UI
     this._view.appendTemplatedItem(STYLE_EDITOR_TEMPLATE, {
       data: {
         editor: editor
       },
       disableAnimations: this._alwaysDisableAnimations,
-      ordinal: editor.styleSheet.styleSheetIndex,
+      ordinal: ordinal,
       onCreate: function(summary, details, data) {
         let editor = data.editor;
         editor.summary = summary;

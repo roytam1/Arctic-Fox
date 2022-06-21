@@ -5,7 +5,6 @@
 
 const {Cc, Ci, Cu, Cr} = require("chrome");
 const events = require("sdk/event/core");
-const {Promise: promise} = Cu.import("resource://gre/modules/Promise.jsm", {});
 const protocol = require("devtools/server/protocol");
 const {serializeStack, parseStack} = require("toolkit/loader");
 
@@ -34,7 +33,7 @@ protocol.types.addDictType("call-details", {
  * This actor contains information about a function call, like the function
  * type, name, stack, arguments, returned value etc.
  */
-let FunctionCallActor = protocol.ActorClass({
+var FunctionCallActor = protocol.ActorClass({
   typeName: "function-call",
 
   /**

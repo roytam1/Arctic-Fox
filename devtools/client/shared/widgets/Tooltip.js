@@ -4,32 +4,35 @@
 
 "use strict";
 
-const {Cc, Cu, Ci} = require("chrome");
-const promise = require("promise");
-const IOService = Cc["@mozilla.org/network/io-service;1"]
-  .getService(Ci.nsIIOService);
-const {Spectrum} = require("devtools/shared/widgets/Spectrum");
-const {CubicBezierWidget} = require("devtools/shared/widgets/CubicBezierWidget");
-const {CSSFilterEditorWidget} = require("devtools/shared/widgets/FilterWidget");
-const EventEmitter = require("devtools/toolkit/event-emitter");
-const {colorUtils} = require("devtools/css-color");
-const Heritage = require("sdk/core/heritage");
-const {Eyedropper} = require("devtools/eyedropper/eyedropper");
-const Editor = require("devtools/sourceeditor/editor");
+/* globals beautify, setNamedTimeout, clearNamedTimeout, VariablesView,
+   VariablesViewController, Task */
 
-loader.lazyRequireGetter(this, "beautify", "devtools/jsbeautify");
+const {Cu, Ci} = require("chrome");
+const promise = require("promise");
+const {Spectrum} = require("devtools/client/shared/widgets/Spectrum");
+const {CubicBezierWidget} =
+      require("devtools/client/shared/widgets/CubicBezierWidget");
+const {MdnDocsWidget} = require("devtools/client/shared/widgets/MdnDocsWidget");
+const {CSSFilterEditorWidget} = require("devtools/client/shared/widgets/FilterWidget");
+const EventEmitter = require("devtools/shared/event-emitter");
+const {colorUtils} = require("devtools/shared/css-color");
+const Heritage = require("sdk/core/heritage");
+const {Eyedropper} = require("devtools/client/eyedropper/eyedropper");
+const Editor = require("devtools/client/sourceeditor/editor");
+
+loader.lazyRequireGetter(this, "beautify", "devtools/shared/jsbeautify/beautify");
 
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 
 XPCOMUtils.defineLazyModuleGetter(this, "setNamedTimeout",
-  "resource://gre/modules/devtools/ViewHelpers.jsm");
+  "resource:///modules/devtools/client/shared/widgets/ViewHelpers.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "clearNamedTimeout",
-  "resource://gre/modules/devtools/ViewHelpers.jsm");
+  "resource:///modules/devtools/client/shared/widgets/ViewHelpers.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "VariablesView",
-  "resource://gre/modules/devtools/VariablesView.jsm");
+  "resource:///modules/devtools/client/shared/widgets/VariablesView.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "VariablesViewController",
-  "resource://gre/modules/devtools/VariablesViewController.jsm");
+  "resource:///modules/devtools/client/shared/widgets/VariablesViewController.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "Task",
   "resource://gre/modules/Task.jsm");
 
@@ -98,7 +101,7 @@ OptionsStore.prototype = {
 /**
  * The low level structure of a tooltip is a XUL element (a <panel>).
  */
-let PanelFactory = {
+var PanelFactory = {
   /**
    * Get a new XUL panel instance.
    * @param {XULDocument} doc
@@ -304,7 +307,7 @@ Tooltip.prototype = {
   /**
    * Get rid of references and event listeners
    */
-  destroy: function () {
+  destroy: function() {
     this.hide();
 
     for (let event of POPUP_EVENTS) {
@@ -716,12 +719,13 @@ Tooltip.prototype = {
           options.naturalHeight);
       } else {
         // If no dimensions were provided, load the image to get them
-        label.textContent = l10n.strings.GetStringFromName("previewTooltip.image.brokenImage");
+        label.textContent =
+          l10n.strings.GetStringFromName("previewTooltip.image.brokenImage");
         let imgObj = new this.doc.defaultView.Image();
         imgObj.src = imageUrl;
         imgObj.onload = () => {
           imgObj.onload = null;
-            label.textContent = this._getImageDimensionLabel(imgObj.naturalWidth,
+          label.textContent = this._getImageDimensionLabel(imgObj.naturalWidth,
               imgObj.naturalHeight);
         };
       }
@@ -1592,9 +1596,9 @@ SwatchFilterTooltip.prototype = Heritage.extend(SwatchBasedEditorTooltip.prototy
 function L10N() {}
 L10N.prototype = {};
 
-let l10n = new L10N();
+var l10n = new L10N();
 
 loader.lazyGetter(L10N.prototype, "strings", () => {
   return Services.strings.createBundle(
-    "chrome://global/locale/devtools/inspector.properties");
+    "chrome://browser/locale/devtools/inspector.properties");
 });
