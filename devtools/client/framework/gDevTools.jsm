@@ -51,8 +51,6 @@ this.DevTools = function DevTools() {
   this.destroy = this.destroy.bind(this);
   this._teardown = this._teardown.bind(this);
 
-  this._testing = false;
-
   EventEmitter.decorate(this);
 
   Services.obs.addObserver(this._teardown, "devtools-unloaded", false);
@@ -85,6 +83,9 @@ DevTools.prototype = {
    *        (string|required)
    * - label: Localized name for the tool to be displayed to the user
    *          (string|required)
+   * - hideInOptions: Boolean indicating whether or not this tool should be
+                      shown in toolbox options or not. Defaults to false.
+   *                  (boolean)
    * - build: Function that takes an iframe, which has been populated with the
    *          markup from |url|, and also the toolbox containing the panel.
    *          And returns an instance of ToolPanel (function|required)
@@ -99,7 +100,7 @@ DevTools.prototype = {
     // Make sure that additional tools will always be able to be hidden.
     // When being called from main.js, defaultTools has not yet been exported.
     // But, we can assume that in this case, it is a default tool.
-    if (devtools.defaultTools && devtools.defaultTools.indexOf(toolDefinition) == -1) {
+    if (DefaultTools && DefaultTools.indexOf(toolDefinition) == -1) {
       toolDefinition.visibilityswitch = "devtools." + toolId + ".enabled";
     }
 
@@ -546,8 +547,9 @@ var gDevToolsBrowser = {
     // If a toolbox exists, using toggle from the Main window :
     // - should close a docked toolbox
     // - should focus a windowed toolbox
-    let isDocked = toolbox && toolbox.hostType != devtools.Toolbox.HostType.WINDOW;
-    isDocked ? toolbox.destroy() : gDevTools.showToolbox(target);  },
+    let isDocked = toolbox && toolbox.hostType != Toolbox.HostType.WINDOW;
+    isDocked ? toolbox.destroy() : gDevTools.showToolbox(target);
+  },
 
   toggleBrowserToolboxCommand: function(gBrowser) {
     let target = TargetFactory.forWindow(gBrowser.ownerDocument.defaultView);
@@ -570,7 +572,7 @@ var gDevToolsBrowser = {
       if (isEnabled) {
         cmd.removeAttribute("disabled");
         cmd.removeAttribute("hidden");
-      } else {
+      } else if (cmd != null) {
         cmd.setAttribute("disabled", "true");
         cmd.setAttribute("hidden", "true");
       }
@@ -753,6 +755,15 @@ var gDevToolsBrowser = {
     return deferred.promise;
   },
 
+  openContentProcessToolbox: function () {
+    this._getContentProcessTarget()
+        .then(target => {
+          // Display a new toolbox, in a new window, with debugger by default
+          return gDevTools.showToolbox(target, "jsdebugger",
+                                       Toolbox.HostType.WINDOW);
+        });
+  },
+
   /**
    * Install WebIDE widget
    */
@@ -887,13 +898,13 @@ var gDevToolsBrowser = {
         switch (threadClient.state) {
           case "paused":
             // When the debugger is already paused.
-            threadClient.breakOnNext();
+            threadClient.resumeThenPause();
             aCallback();
             break;
           case "attached":
             // When the debugger is already open.
             threadClient.interrupt(() => {
-              threadClient.breakOnNext();
+              threadClient.resumeThenPause();
               aCallback();
             });
             break;
@@ -901,7 +912,7 @@ var gDevToolsBrowser = {
             // The debugger is newly opened.
             threadClient.addOneTimeListener("resumed", () => {
               threadClient.interrupt(() => {
-                threadClient.breakOnNext();
+                threadClient.resumeThenPause();
                 aCallback();
               });
             });

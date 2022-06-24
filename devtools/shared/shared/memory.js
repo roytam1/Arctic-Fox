@@ -14,6 +14,9 @@ loader.lazyRequireGetter(this, "DeferredTask",
   "resource://gre/modules/DeferredTask.jsm", true);
 loader.lazyRequireGetter(this, "StackFrameCache",
   "devtools/server/actors/utils/stack", true);
+loader.lazyRequireGetter(this, "ThreadSafeChromeUtils");
+loader.lazyRequireGetter(this, "HeapSnapshotFileUtils",
+  "devtools/shared/heapsnapshot/HeapSnapshotFileUtils");
 
 /**
  * A class that returns memory data for a parent actor's window.
@@ -120,6 +123,25 @@ var Memory = exports.Memory = Class({
       this.dbg.addDebuggees();
     }
   },
+
+  /**
+   * Returns a boolean indicating whether or not allocation
+   * sites are being tracked.
+   */
+  isRecordingAllocations: function () {
+    return this.dbg.memory.trackingAllocationSites;
+  },
+
+  /**
+   * Save a heap snapshot scoped to the current debuggees' portion of the heap
+   * graph.
+   *
+   * @returns {String} The snapshot id.
+   */
+  saveHeapSnapshot: expectState("attached", function () {
+    const path = ThreadSafeChromeUtils.saveHeapSnapshot({ debugger: this.dbg });
+    return HeapSnapshotFileUtils.getSnapshotIdFromPath(path);
+  }, "saveHeapSnapshot"),
 
   /**
    * Take a census of the heap. See js/src/doc/Debugger/Debugger.Memory.md for

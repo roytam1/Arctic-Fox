@@ -125,7 +125,7 @@ function FlameGraph(parent, sharpness) {
   EventEmitter.decorate(this);
 
   this._parent = parent;
-  this._ready = Promise.defer();
+  this._ready = promise.defer();
 
   this.setTheme();
 
@@ -222,7 +222,9 @@ FlameGraph.prototype = {
     this._window.removeEventListener("MozMousePixelScroll", this._onMouseWheel);
 
     let ownerWindow = this._parent.ownerDocument.defaultView;
-    ownerWindow.removeEventListener("resize", this._onResize);
+    if (ownerWindow) {
+      ownerWindow.removeEventListener("resize", this._onResize);
+    }
 
     this._window.cancelAnimationFrame(this._animationId);
     this._iframe.remove();
@@ -421,25 +423,44 @@ FlameGraph.prototype = {
     let selectionScale = canvasWidth / selectionWidth;
     this._drawTicks(selection.start, selectionScale);
     this._drawPyramid(this._data, this._verticalOffset, selection.start, selectionScale);
+    this._drawHeader(selection.start, selectionScale);
 
     this._shouldRedraw = false;
   },
 
   /**
-   * Draws the overhead ticks in this graph.
+   * Draws the overhead header, with time markers and ticks in this graph.
    *
    * @param number dataOffset, dataScale
    *        Offsets and scales the data source by the specified amount.
    *        This is used for scrolling the visualization.
    */
-  _drawTicks: function(dataOffset, dataScale) {
+  _drawHeader: function(dataOffset, dataScale) {
+    let ctx = this._ctx;
+    let canvasWidth = this._width;
+    let headerHeight = OVERVIEW_HEADER_HEIGHT * this._pixelRatio;
+
+    ctx.fillStyle = this.overviewHeaderBackgroundColor;
+    ctx.fillRect(0, 0, canvasWidth, headerHeight);
+
+    this._drawTicks(dataOffset, dataScale, { from: 0, to: headerHeight, renderText: true });
+  },
+
+  /**
+   * Draws the overhead ticks in this graph in the flame graph area.
+   *
+   * @param number dataOffset, dataScale, from, to, renderText
+   *        Offsets and scales the data source by the specified amount.
+   *        from and to determine the Y position of how far the stroke
+   *        should be drawn.
+   *        This is used when scrolling the visualization.
+   */
+  _drawTicks: function(dataOffset, dataScale, options) {
+    let { from, to, renderText }  = options || {};
     let ctx = this._ctx;
     let canvasWidth = this._width;
     let canvasHeight = this._height;
     let scaledOffset = dataOffset * dataScale;
-
-    ctx.fillStyle = this.overviewHeaderBackgroundColor;
-    ctx.fillRect(0, 0, canvasWidth, OVERVIEW_HEADER_HEIGHT * this._pixelRatio);
 
     let fontSize = OVERVIEW_HEADER_TEXT_FONT_SIZE * this._pixelRatio;
     let fontFamily = OVERVIEW_HEADER_TEXT_FONT_FAMILY;
@@ -458,9 +479,11 @@ FlameGraph.prototype = {
       let textLeft = lineLeft + textPaddingLeft;
       let time = Math.round((x / dataScale + dataOffset) / this._pixelRatio);
       let label = time + " " + this.timelineTickUnits;
-      ctx.fillText(label, textLeft, textPaddingTop);
-      ctx.moveTo(lineLeft, 0);
-      ctx.lineTo(lineLeft, canvasHeight);
+      if (renderText) {
+        ctx.fillText(label, textLeft, textPaddingTop);
+      }
+      ctx.moveTo(lineLeft, from || 0);
+      ctx.lineTo(lineLeft, to || canvasHeight);
     }
 
     ctx.stroke();
@@ -740,9 +763,7 @@ FlameGraph.prototype = {
    * Listener for the "mousemove" event on the graph's container.
    */
   _onMouseMove: function(e) {
-    let offset = this._getContainerOffset();
-    let mouseX = (e.clientX - offset.left) * this._pixelRatio;
-    let mouseY = (e.clientY - offset.top) * this._pixelRatio;
+    let {mouseX, mouseY} = this._getRelativeEventCoordinates(e);
 
     let canvasWidth = this._width;
     let canvasHeight = this._height;
@@ -792,9 +813,7 @@ FlameGraph.prototype = {
    * Listener for the "mousedown" event on the graph's container.
    */
   _onMouseDown: function(e) {
-    let offset = this._getContainerOffset();
-    let mouseX = (e.clientX - offset.left) * this._pixelRatio;
-    let mouseY = (e.clientY - offset.top) * this._pixelRatio;
+    let {mouseX, mouseY} = this._getRelativeEventCoordinates(e);
 
     this._selectionDragger.origin = mouseX;
     this._selectionDragger.anchor.start = this._selection.start;
@@ -826,8 +845,7 @@ FlameGraph.prototype = {
    * Listener for the "wheel" event on the graph's container.
    */
   _onMouseWheel: function(e) {
-    let offset = this._getContainerOffset();
-    let mouseX = (e.clientX - offset.left) * this._pixelRatio;
+    let {mouseX} = this._getRelativeEventCoordinates(e);
 
     let canvasWidth = this._width;
     let canvasHeight = this._height;
@@ -919,10 +937,10 @@ FlameGraph.prototype = {
     }
 
     while (true) {
+      let scaledStep = dataScale * timingStep;
       if (++numIters > maxIters) {
         return scaledStep;
       }
-      let scaledStep = dataScale * timingStep;
       if (scaledStep < spacingMin) {
         timingStep <<= 1;
         continue;
@@ -951,6 +969,27 @@ FlameGraph.prototype = {
   },
 
   /**
+   * Given a MouseEvent, make it relative to this._canvas.
+   * @return object {mouseX,mouseY}
+   */
+  _getRelativeEventCoordinates: function(e) {
+    // For ease of testing, testX and testY can be passed in as the event
+    // object.
+    if ("testX" in e && "testY" in e) {
+      return {
+        mouseX: e.testX * this._pixelRatio,
+        mouseY: e.testY * this._pixelRatio
+      };
+    }
+
+    let offset = this._getContainerOffset();
+    let mouseX = (e.clientX - offset.left) * this._pixelRatio;
+    let mouseY = (e.clientY - offset.top) * this._pixelRatio;
+
+    return {mouseX,mouseY};
+  },
+
+  /**
    * Listener for the "resize" event on the graph's parent node.
    */
   _onResize: function() {
@@ -964,7 +1003,7 @@ FlameGraph.prototype = {
  * A collection of utility functions converting various data sources
  * into a format drawable by the FlameGraph.
  */
-let FlameGraphUtils = {
+var FlameGraphUtils = {
   _cache: new WeakMap(),
 
   /**

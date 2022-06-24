@@ -31,7 +31,9 @@ this.EXPORTED_SYMBOLS = ["DevToolsLoader", "devtools", "BuiltinProvider",
 var loaderModules = {
   "Services": Object.create(Services),
   "toolkit/loader": Loader,
-  "PromiseDebugging": PromiseDebugging
+  PromiseDebugging,
+  ThreadSafeChromeUtils,
+  HeapSnapshot,
 };
 XPCOMUtils.defineLazyGetter(loaderModules, "Debugger", () => {
   // addDebuggerToGlobal only allows adding the Debugger object to a global. The

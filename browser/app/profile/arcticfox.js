@@ -1124,6 +1124,9 @@ pref("devtools.command-button-eyedropper.enabled", false);
 pref("devtools.command-button-screenshot.enabled", false);
 pref("devtools.command-button-rulers.enabled", false);
 
+// Enable the MDN docs tooltip
+pref("devtools.inspector.mdnDocsTooltip.enabled", true);
+
 // Enable the Debugger
 pref("devtools.debugger.enabled", true);
 pref("devtools.debugger.chrome-debugging-host", "localhost");
@@ -1145,6 +1148,9 @@ pref("devtools.debugger.ui.panes-visible-on-startup", false);
 pref("devtools.debugger.ui.variables-sorting-enabled", true);
 pref("devtools.debugger.ui.variables-only-enum-visible", false);
 pref("devtools.debugger.ui.variables-searchbox-visible", false);
+
+// Enable the Memory tools
+pref("devtools.memory.enabled", false);
 
 // Enable the Performance tools
 pref("devtools.performance.enabled", true);
