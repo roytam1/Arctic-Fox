@@ -9,7 +9,6 @@
 
 const {utils: Cu, interfaces: Ci, classes: Cc} = Components;
 
-Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/Task.jsm");
 const {require} = Cu.import("resource://gre/modules/devtools/shared/Loader.jsm", {});
 Cu.import("resource://gre/modules/devtools/shared/Console.jsm");
@@ -230,7 +229,8 @@ LayoutView.prototype = {
     if (!this.reflowFront) {
       let toolbox = this.inspector.toolbox;
       if (toolbox.target.form.reflowActor) {
-        this.reflowFront = ReflowFront(toolbox.target.client, toolbox.target.form);
+        this.reflowFront = ReflowFront(toolbox.target.client,
+                                       toolbox.target.form);
       } else {
         return;
       }
@@ -264,11 +264,11 @@ LayoutView.prototype = {
       element: element,
       initial: initialValue,
 
-      start: (editor) => {
+      start: editor => {
         editor.elt.parentNode.classList.add("editing");
       },
 
-      change: (value) => {
+      change: value => {
         if (NUMERIC.test(value)) {
           value += "px";
         }
@@ -299,11 +299,23 @@ LayoutView.prototype = {
   },
 
   /**
-   * Is the layoutview visible in the sidebar?
+   * Is the layoutview visible in the sidebar.
+   * @return {Boolean}
    */
-  isActive: function() {
+  isViewVisible: function() {
     return this.inspector &&
            this.inspector.sidebar.getCurrentTabID() == "layoutview";
+  },
+
+  /**
+   * Is the layoutview visible in the sidebar and is the current node valid to
+   * be displayed in the view.
+   * @return {Boolean}
+   */
+  isViewVisibleAndNodeValid: function() {
+    return this.isViewVisible() &&
+           this.inspector.selection.isConnected() &&
+           this.inspector.selection.isElementNode();
   },
 
   /**
@@ -327,9 +339,7 @@ LayoutView.prototype = {
   },
 
   onSidebarSelect: function(e, sidebar) {
-    if (sidebar !== "layoutview") {
-      this.dim();
-    }
+    this.setActive(sidebar === "layoutview");
   },
 
   /**
@@ -337,42 +347,37 @@ LayoutView.prototype = {
    */
   onNewSelection: function() {
     let done = this.inspector.updating("layoutview");
-    this.onNewNode().then(done, (err) => { console.error(err); done() });
+    this.onNewNode().then(done, err => {
+      console.error(err);
+      done();
+    });
   },
 
   /**
    * @return a promise that resolves when the view has been updated
    */
   onNewNode: function() {
-    if (this.isActive() &&
-        this.inspector.selection.isConnected() &&
-        this.inspector.selection.isElementNode()) {
-      this.undim();
-    } else {
-      this.dim();
-    }
-
+    this.setActive(this.isViewVisibleAndNodeValid());
     return this.update();
   },
 
   /**
-   * Hide the layout boxes and stop refreshing on reflows. No node is selected
-   * or the layout-view sidebar is inactive.
+   * Stop tracking reflows and hide all values when no node is selected or the
+   * layout-view is hidden, otherwise track reflows and show values.
+   * @param {Boolean} isActive
    */
-  dim: function() {
-    this.untrackReflows();
-    this.doc.body.classList.add("dim");
-    this.dimmed = true;
-  },
+  setActive: function(isActive) {
+    if (isActive === this.isActive) {
+      return;
+    }
+    this.isActive = isActive;
 
-  /**
-   * Show the layout boxes and start refreshing on reflows. A node is selected
-   * and the layout-view side is active.
-   */
-  undim: function() {
-    this.trackReflows();
-    this.doc.body.classList.remove("dim");
-    this.dimmed = false;
+    this.doc.body.classList.toggle("inactive", !isActive);
+    if (isActive) {
+      this.trackReflows();
+    } else {
+      this.untrackReflows();
+    }
   },
 
   /**
@@ -382,15 +387,13 @@ LayoutView.prototype = {
    */
   update: function() {
     let lastRequest = Task.spawn((function*() {
-      if (!this.isActive() ||
-          !this.inspector.selection.isConnected() ||
-          !this.inspector.selection.isElementNode()) {
+      if (!this.isViewVisibleAndNodeValid()) {
         return;
       }
 
       let node = this.inspector.selection.nodeFront;
       let layout = yield this.inspector.pageStyle.getLayout(node, {
-        autoMargins: !this.dimmed
+        autoMargins: this.isActive
       });
       let styleEntries = yield this.inspector.pageStyle.getApplied(node, {});
 
@@ -408,8 +411,8 @@ LayoutView.prototype = {
         this.sizeHeadingLabel.textContent = newLabel;
       }
 
-      // If the view is dimmed, no need to do anything more.
-      if (this.dimmed) {
+      // If the view isn't active, no need to do anything more.
+      if (!this.isActive) {
         this.inspector.emit("layoutview-updated");
         return null;
       }
@@ -432,14 +435,23 @@ LayoutView.prototype = {
       }
 
       let margins = layout.autoMargins;
-      if ("top" in margins) this.map.marginTop.value = "auto";
-      if ("right" in margins) this.map.marginRight.value = "auto";
-      if ("bottom" in margins) this.map.marginBottom.value = "auto";
-      if ("left" in margins) this.map.marginLeft.value = "auto";
+      if ("top" in margins) {
+        this.map.marginTop.value = "auto";
+      }
+      if ("right" in margins) {
+        this.map.marginRight.value = "auto";
+      }
+      if ("bottom" in margins) {
+        this.map.marginBottom.value = "auto";
+      }
+      if ("left" in margins) {
+        this.map.marginLeft.value = "auto";
+      }
 
       for (let i in this.map) {
         let selector = this.map[i].selector;
         let span = this.doc.querySelector(selector);
+        this.updateSourceRuleTooltip(span, this.map[i].property, styleEntries);
         if (span.textContent.length > 0 &&
             span.textContent == this.map[i].value) {
           continue;
@@ -460,12 +472,46 @@ LayoutView.prototype = {
         this.sizeLabel.textContent = newValue;
       }
 
-      this.elementRules = [e.rule for (e of styleEntries)];
+      this.elementRules = styleEntries.map(e => e.rule);
 
       this.inspector.emit("layoutview-updated");
     }).bind(this)).then(null, console.error);
 
     return this._lastRequest = lastRequest;
+  },
+
+  /**
+   * Update the text in the tooltip shown when hovering over a value to provide
+   * information about the source CSS rule that sets this value.
+   * @param {DOMNode} el The element that will receive the tooltip.
+   * @param {String} property The name of the CSS property for the tooltip.
+   * @param {Array} rules An array of applied rules retrieved by
+   * styleActor.getApplied.
+   */
+  updateSourceRuleTooltip: function(el, property, rules) {
+    // Dummy element used to parse the cssText of applied rules.
+    let dummyEl = this.doc.createElement("div");
+
+    // Rules are in order of priority so iterate until we find the first that
+    // defines a value for the property.
+    let sourceRule, value;
+    for (let {rule} of rules) {
+      dummyEl.style.cssText = rule.cssText;
+      value = dummyEl.style.getPropertyValue(property);
+      if (value !== "") {
+        sourceRule = rule;
+        break;
+      }
+    }
+
+    let title = property;
+    if (sourceRule && sourceRule.selectors) {
+      title += "\n" + sourceRule.selectors.join(", ");
+    }
+    if (sourceRule && sourceRule.parentStyleSheet) {
+      title += "\n" + sourceRule.parentStyleSheet.href + ":" + sourceRule.line;
+    }
+    el.setAttribute("title", title);
   },
 
   /**
@@ -498,31 +544,33 @@ LayoutView.prototype = {
   }
 };
 
-let elts;
-let tooltip;
+var elts;
 
-let onmouseover = function(e) {
+var onmouseover = function(e) {
   let region = e.target.getAttribute("data-box");
+  if (!region) {
+    return false;
+  }
 
-  tooltip.textContent = e.target.getAttribute("tooltip");
-  this.layoutview.showBoxModel({region});
+  this.layoutview.showBoxModel({
+    region,
+    showOnly: region,
+    onlyRegionArea: true
+  });
 
   return false;
 }.bind(window);
 
-let onmouseout = function(e) {
-  tooltip.textContent = "";
+var onmouseout = function() {
   this.layoutview.hideBoxModel();
-
   return false;
 }.bind(window);
 
 window.setPanel = function(panel) {
   this.layoutview = new LayoutView(panel, window);
 
-  // Tooltip mechanism
-  elts = document.querySelectorAll("*[tooltip]");
-  tooltip = document.querySelector(".tooltip");
+  // Box model highlighter mechanism
+  elts = document.querySelectorAll("*[title]");
   for (let i = 0; i < elts.length; i++) {
     let elt = elts[i];
     elt.addEventListener("mouseover", onmouseover, true);
@@ -530,8 +578,8 @@ window.setPanel = function(panel) {
   }
 
   // Mark document as RTL or LTR:
-  let chromeReg = Cc["@mozilla.org/chrome/chrome-registry;1"].
-    getService(Ci.nsIXULChromeRegistry);
+  let chromeReg = Cc["@mozilla.org/chrome/chrome-registry;1"]
+                  .getService(Ci.nsIXULChromeRegistry);
   let dir = chromeReg.isLocaleRTL("global");
   document.body.setAttribute("dir", dir ? "rtl" : "ltr");
 

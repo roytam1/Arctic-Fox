@@ -74,6 +74,10 @@ function ToolSidebar(tabbox, panel, uid, options={}) {
     this._width = Services.prefs.getIntPref("devtools.toolsidebar-width." + this._uid);
   } catch(e) {}
 
+  if (!options.disableTelemetry) {
+    this._telemetry = new Telemetry();
+  }
+
   this._tabbox.tabpanels.addEventListener("select", this, true);
 
   this._tabs = new Map();
@@ -115,7 +119,7 @@ ToolSidebar.prototype = {
     let tabs = this._tabbox.tabs;
 
     // Create a container and insert it first in the tabbox
-    let allTabsContainer = this._panelDoc.createElementNS(XULNS, "box");
+    let allTabsContainer = this._panelDoc.createElementNS(XULNS, "stack");
     this._tabbox.insertBefore(allTabsContainer, tabs);
 
     // Move the tabs inside and make them flex
@@ -125,8 +129,10 @@ ToolSidebar.prototype = {
     // Create the dropdown menu next to the tabs
     this._allTabsBtn = this._panelDoc.createElementNS(XULNS, "toolbarbutton");
     this._allTabsBtn.setAttribute("class", "devtools-sidebar-alltabs");
+    this._allTabsBtn.setAttribute("right", "0");
+    this._allTabsBtn.setAttribute("top", "0");
+    this._allTabsBtn.setAttribute("width", "15");
     this._allTabsBtn.setAttribute("type", "menu");
-    this._allTabsBtn.setAttribute("label", l10n("sidebar.showAllTabs.label"));
     this._allTabsBtn.setAttribute("tooltiptext", l10n("sidebar.showAllTabs.tooltip"));
     this._allTabsBtn.setAttribute("hidden", "true");
     allTabsContainer.appendChild(this._allTabsBtn);
@@ -157,7 +163,7 @@ ToolSidebar.prototype = {
 
     // Moving back the tabs as a first child of the tabbox
     this._tabbox.insertBefore(tabs, this._tabbox.tabpanels);
-    this._tabbox.querySelector("box").remove();
+    this._tabbox.querySelector("stack").remove();
 
     this._allTabsBtn = null;
   },
@@ -322,14 +328,11 @@ ToolSidebar.prototype = {
   }),
 
   /**
-   * Show or hide a specific tab and tabpanel.
+   * Show or hide a specific tab.
    * @param {Boolean} isVisible True to show the tab/tabpanel, False to hide it.
    * @param {String} id The ID of the tab to be hidden.
-   * @param {String} tabPanelId Optionally pass the ID for the tabPanel if it
-   * can't be retrieved using the tab ID. This is useful when tabs and tabpanels
-   * existed before the widget was created.
    */
-  toggleTab: function(isVisible, id, tabPanelId) {
+  toggleTab: function(isVisible, id) {
     // Toggle the tab.
     let tab = this.getTab(id);
     if (!tab) {
@@ -340,16 +343,6 @@ ToolSidebar.prototype = {
     // Toggle the item in the allTabs menu.
     if (this._allTabsBtn) {
       this._allTabsBtn.querySelector("#sidebar-alltabs-item-" + id).hidden = !isVisible;
-    }
-
-    // Toggle the corresponding tabPanel, if one can be found either with the id
-    // or the provided tabPanelId.
-    let tabPanel = this.getTabPanel(id);
-    if (!tabPanel && tabPanelId) {
-      tabPanel = this.getTabPanel(tabPanelId);
-    }
-    if (tabPanel) {
-      tabPanel.hidden = !isVisible;
     }
   },
 
@@ -413,7 +406,14 @@ ToolSidebar.prototype = {
     let previousTool = this._currentTool;
     this._currentTool = this.getCurrentTabID();
     if (previousTool) {
+      if (this._telemetry) {
+        this._telemetry.toolClosed(previousTool);
+      }
       this.emit(previousTool + "-unselected");
+    }
+
+    if (this._telemetry) {
+      this._telemetry.toolOpened(this._currentTool);
     }
 
     this.emit(this._currentTool + "-selected");
@@ -518,6 +518,10 @@ ToolSidebar.prototype = {
       this._tabbox.tabs.removeChild(this._tabbox.tabs.firstChild);
     }
 
+    if (this._currentTool && this._telemetry) {
+      this._telemetry.toolClosed(this._currentTool);
+    }
+
     this._toolPanel.emit("sidebar-destroyed", this);
 
     this._tabs = null;
@@ -528,7 +532,7 @@ ToolSidebar.prototype = {
 }
 
 XPCOMUtils.defineLazyGetter(this, "l10n", function() {
-  let bundle = Services.strings.createBundle("chrome://global/locale/devtools/toolbox.properties");
+  let bundle = Services.strings.createBundle("chrome://browser/locale/devtools/toolbox.properties");
   let l10n = function(aName, ...aArgs) {
     try {
       if (aArgs.length == 0) {

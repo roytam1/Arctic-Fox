@@ -34,13 +34,13 @@ const styleEditorProps = "chrome://browser/locale/devtools/styleeditor.propertie
 const shaderEditorProps = "chrome://browser/locale/devtools/shadereditor.properties";
 const canvasDebuggerProps = "chrome://browser/locale/devtools/canvasdebugger.properties";
 const webAudioEditorProps = "chrome://browser/locale/devtools/webaudioeditor.properties";
-const profilerProps = "chrome://browser/locale/devtools/profiler.properties";
+const performanceProps = "chrome://browser/locale/devtools/performance.properties";
 const netMonitorProps = "chrome://browser/locale/devtools/netmonitor.properties";
 const storageProps = "chrome://browser/locale/devtools/storage.properties";
 const scratchpadProps = "chrome://browser/locale/devtools/scratchpad.properties";
 
 loader.lazyGetter(this, "toolboxStrings", () => Services.strings.createBundle(toolboxProps));
-loader.lazyGetter(this, "profilerStrings",() => Services.strings.createBundle(profilerProps));
+loader.lazyGetter(this, "performanceStrings",() => Services.strings.createBundle(performanceProps));
 loader.lazyGetter(this, "webConsoleStrings", () => Services.strings.createBundle(webConsoleProps));
 loader.lazyGetter(this, "debuggerStrings", () => Services.strings.createBundle(debuggerProps));
 loader.lazyGetter(this, "styleEditorStrings", () => Services.strings.createBundle(styleEditorProps));
@@ -91,7 +91,7 @@ Tools.inspector = {
   panelLabel: l10n("inspector.panelLabel", inspectorStrings),
   get tooltip() {
     return l10n("inspector.tooltip2", inspectorStrings,
-    ( osString == "Darwin" ? "Cmd+Alt" : "Ctrl+Shift+" ) + this.key);
+    ( osString == "Darwin" ? "Cmd+Opt+" : "Ctrl+Shift+" ) + this.key);
   },
   inMenu: true,
   commands: [
@@ -128,7 +128,7 @@ Tools.webConsole = {
   panelLabel: l10n("ToolboxWebConsole.panelLabel", webConsoleStrings),
   get tooltip() {
     return l10n("ToolboxWebconsole.tooltip2", webConsoleStrings,
-    ( osString == "Darwin" ? "Cmd+Alt" : "Ctrl+Shift+" ) + this.key);
+    ( osString == "Darwin" ? "Cmd+Opt+" : "Ctrl+Shift+" ) + this.key);
   },
   inMenu: true,
   commands: "devtools/client/webconsole/console-commands",
@@ -164,7 +164,7 @@ Tools.jsdebugger = {
   panelLabel: l10n("ToolboxDebugger.panelLabel", debuggerStrings),
   get tooltip() {
     return l10n("ToolboxDebugger.tooltip2", debuggerStrings,
-    ( osString == "Darwin" ? "Cmd+Alt" : "Ctrl+Shift+" ) + this.key);
+    ( osString == "Darwin" ? "Cmd+Opt+" : "Ctrl+Shift+" ) + this.key);
   },
   inMenu: true,
   commands: "devtools/client/debugger/debugger-commands",
@@ -255,14 +255,14 @@ Tools.performance = {
   highlightedicon: "chrome://devtools/skin/themes/images/tool-profiler-active.svg",
   url: "chrome://devtools/content/performance/performance.xul",
   visibilityswitch: "devtools.performance.enabled",
-  label: l10n("profiler.label2", profilerStrings),
-  panelLabel: l10n("profiler.panelLabel2", profilerStrings),
+  label: l10n("performance.label", performanceStrings),
+  panelLabel: l10n("performance.panelLabel", performanceStrings),
   get tooltip() {
-    return l10n("profiler.tooltip3", profilerStrings,
+    return l10n("performance.tooltip", performanceStrings,
     "Shift+" + functionkey(this.key));
   },
-  accesskey: l10n("profiler.accesskey", profilerStrings),
-  key: l10n("profiler.commandkey2", profilerStrings),
+  accesskey: l10n("performance.accesskey", performanceStrings),
+  key: l10n("performance.commandkey", performanceStrings),
   modifiers: "shift",
   inMenu: true,
 
@@ -314,7 +314,7 @@ Tools.netMonitor = {
   panelLabel: l10n("netmonitor.panelLabel", netMonitorStrings),
   get tooltip() {
     return l10n("netmonitor.tooltip2", netMonitorStrings,
-    ( osString == "Darwin" ? "Cmd+Alt" : "Ctrl+Shift+" ) + this.key);
+    ( osString == "Darwin" ? "Cmd+Opt+" : "Ctrl+Shift+" ) + this.key);
   },
   inMenu: true,
 

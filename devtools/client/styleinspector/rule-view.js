@@ -31,6 +31,8 @@ const HTML_NS = "http://www.w3.org/1999/xhtml";
 const XUL_NS = "http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul";
 const PREF_UA_STYLES = "devtools.inspector.showUserAgentStyles";
 const PREF_DEFAULT_COLOR_UNIT = "devtools.defaultColorUnit";
+const PREF_ENABLE_MDN_DOCS_TOOLTIP =
+      "devtools.inspector.mdnDocsTooltip.enabled";
 const PROPERTY_NAME_CLASS = "ruleview-propertyname";
 const FILTER_CHANGED_TIMEOUT = 150;
 
@@ -266,7 +268,7 @@ ElementStyle.prototype = {
     // If we've already included this domRule (for example, when a
     // common selector is inherited), ignore it.
     if (aOptions.rule &&
-        this.rules.some(function(rule) rule.domRule === aOptions.rule)) {
+        this.rules.some(rule => rule.domRule === aOptions.rule)) {
       return false;
     }
 
@@ -405,7 +407,7 @@ ElementStyle.prototype = {
   _updatePropertyOverridden: function(aProp) {
     let overridden = true;
     let dirty = false;
-    for each (let computedProp in aProp.computed) {
+    for (let computedProp of aProp.computed) {
       if (!computedProp.overridden) {
         overridden = false;
       }
@@ -757,7 +759,7 @@ Rule.prototype = {
    *        The property to be removed
    */
   removeProperty: function(aProperty) {
-    this.textProps = this.textProps.filter(function(prop) prop != aProperty);
+    this.textProps = this.textProps.filter(prop => prop != aProperty);
     let modifications = this.style.startModifyingProperties();
     modifications.removeProperty(aProperty.name);
     // Need to re-apply properties in case removing this TextProperty
@@ -800,7 +802,7 @@ Rule.prototype = {
 
     let textProps = [];
 
-    for each (let prop in disabledProps) {
+    for (let prop of disabledProps) {
       let value = store.userProperties.getProperty(this.style, prop.name, prop.value);
       let textProp = new TextProperty(this, prop.name, value, prop.priority);
       textProp.enabled = false;
@@ -879,7 +881,7 @@ Rule.prototype = {
   _updateTextProperty: function(aNewProp) {
     let match = { rank: 0, prop: null };
 
-    for each (let prop in this.textProps) {
+    for (let prop of this.textProps) {
       if (prop.name != aNewProp.name)
         continue;
 
@@ -1165,8 +1167,11 @@ function CssRuleView(aInspector, aDoc, aStore, aPageStyle) {
   this._prefObserver.on(PREF_ORIG_SOURCES, this._onSourcePrefChanged);
   this._prefObserver.on(PREF_UA_STYLES, this._handlePrefChange);
   this._prefObserver.on(PREF_DEFAULT_COLOR_UNIT, this._handlePrefChange);
+  this._prefObserver.on(PREF_ENABLE_MDN_DOCS_TOOLTIP, this._handlePrefChange);
 
   this.showUserAgentStyles = Services.prefs.getBoolPref(PREF_UA_STYLES);
+  this.enableMdnDocsTooltip =
+    Services.prefs.getBoolPref(PREF_ENABLE_MDN_DOCS_TOOLTIP);
 
   let options = {
     autoSelect: true,
@@ -2805,7 +2810,7 @@ TextPropertyEditor.prototype = {
     }
 
     let showExpander = false;
-    for each (let computed in this.prop.computed) {
+    for (let computed of this.prop.computed) {
       // Don't bother to duplicate information already
       // shown in the text property.
       if (computed.name === this.prop.name) {

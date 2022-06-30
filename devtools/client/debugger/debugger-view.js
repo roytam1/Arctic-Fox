@@ -14,6 +14,7 @@ const BREAKPOINT_LINE_TOOLTIP_MAX_LENGTH = 1000; // chars
 const BREAKPOINT_CONDITIONAL_POPUP_POSITION = "before_start";
 const BREAKPOINT_CONDITIONAL_POPUP_OFFSET_X = 7; // px
 const BREAKPOINT_CONDITIONAL_POPUP_OFFSET_Y = -3; // px
+const BREAKPOINT_SMALL_WINDOW_WIDTH = 850; // px
 const RESULTS_PANEL_POPUP_POSITION = "before_end";
 const RESULTS_PANEL_MAX_RESULTS = 10;
 const FILE_SEARCH_ACTION_MAX_DELAY = 300; // ms
@@ -97,6 +98,8 @@ var DebuggerView = {
       return this._shutdown;
     }
 
+    window.removeEventListener("resize", this._onResize, false);
+
     let deferred = promise.defer();
     this._shutdown = deferred.promise;
 
@@ -110,6 +113,7 @@ var DebuggerView = {
     this.WatchExpressions.destroy();
     this.EventListeners.destroy();
     this.GlobalSearch.destroy();
+    this._destroyPromiseDebugger();
     this._destroyPanes();
     this._destroyEditor(deferred.resolve);
 
@@ -127,6 +131,7 @@ var DebuggerView = {
     this._workersAndSourcesPane = document.getElementById("workers-and-sources-pane");
     this._instrumentsPane = document.getElementById("instruments-pane");
     this._instrumentsPaneToggleButton = document.getElementById("instruments-pane-toggle");
+    this._promisePane = document.getElementById("promise-debugger-pane");
 
     this.showEditor = this.showEditor.bind(this);
     this.showBlackBoxMessage = this.showBlackBoxMessage.bind(this);
@@ -143,10 +148,10 @@ var DebuggerView = {
     this._instrumentsPane.setAttribute("width", Prefs.instrumentsWidth);
     this.toggleInstrumentsPane({ visible: Prefs.panesVisibleOnStartup });
 
-    // Side hosts requires a different arrangement of the debugger widgets.
-    if (gHostType == "side") {
-      this.handleHostChanged(gHostType);
-    }
+    this.updateLayoutMode();
+
+    this._onResize = this._onResize.bind(this);
+    window.addEventListener("resize", this._onResize, false);
   },
 
   /**
@@ -163,6 +168,7 @@ var DebuggerView = {
     this._workersAndSourcesPane = null;
     this._instrumentsPane = null;
     this._instrumentsPaneToggleButton = null;
+    this._promisePane = null;
   },
 
   /**
@@ -207,6 +213,41 @@ var DebuggerView = {
           break;
       }
     });
+  },
+
+  /**
+   * Initialie the Promise Debugger instance.
+   */
+  _initializePromiseDebugger: function() {
+    let iframe = this._promiseDebuggerIframe = document.createElement("iframe");
+    iframe.setAttribute("flex", 1);
+
+    let onLoad = (event) => {
+      iframe.removeEventListener("load", onLoad, true);
+
+      let doc = event.target;
+      let win = doc.defaultView;
+
+      win.setPanel(DebuggerController._toolbox);
+    };
+
+    iframe.addEventListener("load", onLoad, true);
+    iframe.setAttribute("src", PROMISE_DEBUGGER_URL);
+    this._promisePane.appendChild(iframe);
+  },
+
+  /**
+   * Destroy the Promise Debugger instance.
+   */
+  _destroyPromiseDebugger: function() {
+    if (this._promiseDebuggerIframe) {
+      this._promiseDebuggerIframe.contentWindow.destroy();
+
+      this._promiseDebuggerIframe.parentNode.removeChild(
+        this._promiseDebuggerIframe);
+
+      this._promiseDebuggerIframe = null;
+    }
   },
 
   /**
@@ -596,27 +637,66 @@ var DebuggerView = {
    * @param string aType
    *        The host type, either "bottom", "side" or "window".
    */
-  handleHostChanged: function(aType) {
-    let newLayout = "";
-
-    if (aType == "side") {
-      newLayout = "vertical";
-      this._enterVerticalLayout();
-    } else {
-      newLayout = "horizontal";
-      this._enterHorizontalLayout();
-    }
-
-    this._hostType = aType;
-    this._body.setAttribute("layout", newLayout);
-    window.emit(EVENTS.LAYOUT_CHANGED, newLayout);
+  handleHostChanged: function(hostType) {
+    this._hostType = hostType;
+    this.updateLayoutMode();
   },
 
   /**
-   * Switches the debugger widgets to a horizontal layout.
+   * Resize handler for this container's window.
+   */
+  _onResize: function (evt) {
+    // Allow requests to settle down first.
+    setNamedTimeout(
+      "resize-events", RESIZE_REFRESH_RATE, () => this.updateLayoutMode());
+  },
+
+  /**
+   * Set the layout to "vertical" or "horizontal" depending on the host type.
+   */
+  updateLayoutMode: function() {
+    if (this._isSmallWindowHost() || this._hostType == "side") {
+      this._setLayoutMode("vertical");
+    } else {
+      this._setLayoutMode("horizontal");
+    }
+  },
+
+  /**
+   * Check if the current host is in window mode and is
+   * too small for horizontal layout
+   */
+  _isSmallWindowHost: function() {
+    if (this._hostType != "window") {
+      return false;
+    }
+
+    return window.outerWidth <= BREAKPOINT_SMALL_WINDOW_WIDTH;
+  },
+
+  /**
+   * Enter the provided layoutMode. Do nothing if the layout is the same as the current one.
+   * @param {String} layoutMode new layout ("vertical" or "horizontal")
+   */
+  _setLayoutMode: function(layoutMode) {
+    if (this._body.getAttribute("layout") == layoutMode) {
+      return;
+    }
+
+    if (layoutMode == "vertical") {
+      this._enterVerticalLayout();
+    } else {
+      this._enterHorizontalLayout();
+    }
+
+    this._body.setAttribute("layout", layoutMode);
+    window.emit(EVENTS.LAYOUT_CHANGED, layoutMode);
+  },
+
+  /**
+   * Switches the debugger widgets to a vertical layout.
    */
   _enterVerticalLayout: function() {
-    let normContainer = document.getElementById("debugger-widgets");
     let vertContainer = document.getElementById("vertical-layout-panes-container");
 
     // Move the soruces and instruments panes in a different container.
@@ -631,17 +711,17 @@ var DebuggerView = {
   },
 
   /**
-   * Switches the debugger widgets to a vertical layout.
+   * Switches the debugger widgets to a horizontal layout.
    */
   _enterHorizontalLayout: function() {
     let normContainer = document.getElementById("debugger-widgets");
-    let vertContainer = document.getElementById("vertical-layout-panes-container");
+    let editorPane = document.getElementById("editor-and-instruments-pane");
 
     // The sources and instruments pane need to be inserted at their
     // previous locations in their normal container.
     let splitter = document.getElementById("sources-and-editor-splitter");
     normContainer.insertBefore(this._workersAndSourcesPane, splitter);
-    normContainer.appendChild(this._instrumentsPane);
+    editorPane.appendChild(this._instrumentsPane);
 
     // Revert to the preferred sources and instruments widths, because
     // they flexed in the vertical layout.

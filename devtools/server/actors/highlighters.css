@@ -35,6 +35,12 @@
   opacity: 0.6;
 }
 
+/* Box model regions can be faded (see the onlyRegionArea option in
+   highlighters.js) in order to only display certain regions. */
+:-moz-native-anonymous .box-model-regions [faded] {
+  display: none;
+}
+
 :-moz-native-anonymous .box-model-content {
   fill: #87ceeb;
 }
@@ -242,15 +248,6 @@
   fill: #fff;
 }
 
-/*
-  Setting `stroke-width` with a low floating point number, ensure that `path`
-  draws always 1px despites the zoom level, with `crispEdges` on the ancestor.
-*/
-:-moz-native-anonymous .rulers-highlighter-ruler-graduations,
-:-moz-native-anonymous .rulers-highlighter-ruler-markers {
-  stroke-width: 0.0001;
-}
-
 :-moz-native-anonymous .rulers-highlighter-ruler-graduations {
   stroke: #bebebe;
 }
@@ -276,4 +273,3 @@
   transform: rotate(-90deg);
   text-anchor: end;
 }
-

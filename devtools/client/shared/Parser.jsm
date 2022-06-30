@@ -23,6 +23,7 @@ this.EXPORTED_SYMBOLS = ["Parser", "ParserHelpers", "SyntaxTreeVisitor"];
 this.Parser = function Parser() {
   this._cache = new Map();
   this.errors = [];
+  this.logExceptions = true;
 };
 
 Parser.prototype = {
@@ -67,7 +68,9 @@ Parser.prototype = {
         syntaxTrees.push(new SyntaxTree(nodes, aUrl, length));
       } catch (e) {
         this.errors.push(e);
-        DevToolsUtils.reportException(aUrl, e);
+        if (this.logExceptions) {
+          DevToolsUtils.reportException(aUrl, e);
+        }
       }
     }
     // Generate the AST nodes for each script.
@@ -81,7 +84,9 @@ Parser.prototype = {
           syntaxTrees.push(new SyntaxTree(nodes, aUrl, length, offset));
         } catch (e) {
           this.errors.push(e);
-          DevToolsUtils.reportException(aUrl, e);
+          if (this.logExceptions) {
+            DevToolsUtils.reportException(aUrl, e);
+          }
         }
       }
     }
@@ -372,7 +377,7 @@ SyntaxTree.prototype = {
        * Callback invoked for each arrow expression node.
        * @param Node aNode
        */
-      onArrowExpression: function(aNode) {
+      onArrowFunctionExpression: function(aNode) {
         // Infer the function's name from an enclosing syntax tree node.
         let inferredInfo = ParserHelpers.inferFunctionExpressionInfo(aNode);
         let inferredName = inferredInfo.name;
@@ -1618,8 +1623,8 @@ var SyntaxTreeVisitor = {
   /**
    * An arrow expression.
    *
-   * interface ArrowExpression <: Function, Expression {
-   *   type: "ArrowExpression";
+   * interface ArrowFunctionExpression <: Function, Expression {
+   *   type: "ArrowFunctionExpression";
    *   params: [ Pattern ];
    *   defaults: [ Expression ];
    *   rest: Identifier | null;
@@ -1628,7 +1633,7 @@ var SyntaxTreeVisitor = {
    *   expression: boolean;
    * }
    */
-  ArrowExpression: function(aNode, aParent, aCallbacks) {
+  ArrowFunctionExpression: function(aNode, aParent, aCallbacks) {
     aNode._parent = aParent;
 
     if (this.break) {
@@ -1639,8 +1644,8 @@ var SyntaxTreeVisitor = {
         return;
       }
     }
-    if (aCallbacks.onArrowExpression) {
-      aCallbacks.onArrowExpression(aNode);
+    if (aCallbacks.onArrowFunctionExpression) {
+      aCallbacks.onArrowFunctionExpression(aNode);
     }
     for (let param of aNode.params) {
       this[param.type](param, aNode, aCallbacks);
