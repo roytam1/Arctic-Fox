@@ -2436,7 +2436,7 @@ JS_New(JSContext* cx, JS::HandleObject ctor, const JS::HandleValueArray& args);
 
 /*** Property descriptors ************************************************************************/
 
-struct JSPropertyDescriptor : public JS::Traceable {
+struct JS_PUBLIC_API(JSPropertyDescriptor) : public JS::Traceable {
     JSObject* obj;
     unsigned attrs;
     JSGetterOp getter;

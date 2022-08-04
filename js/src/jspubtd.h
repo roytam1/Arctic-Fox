@@ -97,7 +97,7 @@ struct JSFunctionSpec;
 struct JSLocaleCallbacks;
 struct JSObjectMap;
 struct JSPrincipals;
-struct JSPropertyDescriptor;
+struct JS_PUBLIC_API(JSPropertyDescriptor);
 struct JSPropertyName;
 struct JSPropertySpec;
 struct JSRuntime;
