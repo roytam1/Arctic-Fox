@@ -185,7 +185,7 @@ using AtomOrTwoByteChars = Variant<JSAtom*, const char16_t*>;
 
 // The base class implemented by each ConcreteStackFrame<T> type. Subclasses
 // must not add data members to this class.
-class BaseStackFrame {
+class JS_FRIEND_API(BaseStackFrame) {
     friend class StackFrame;
 
     BaseStackFrame(const StackFrame&) = delete;
@@ -277,7 +277,7 @@ template<typename T> class ConcreteStackFrame;
 // valid within the scope of an AutoCheckCannotGC; if the graph being analyzed
 // is an offline heap snapshot, the JS::ubi::StackFrame is valid as long as the
 // offline heap snapshot is alive.
-class StackFrame : public JS::Traceable {
+class JS_FRIEND_API(StackFrame) : public JS::Traceable {
     // Storage in which we allocate BaseStackFrame subclasses.
     mozilla::AlignedStorage2<BaseStackFrame> storage;
 
@@ -409,7 +409,7 @@ class StackFrame : public JS::Traceable {
 // The ubi::StackFrame null pointer. Any attempt to operate on a null
 // ubi::StackFrame crashes.
 template<>
-class ConcreteStackFrame<void> : public BaseStackFrame {
+class JS_FRIEND_API(ConcreteStackFrame<void>) : public BaseStackFrame {
     explicit ConcreteStackFrame(void* ptr) : BaseStackFrame(ptr) { }
 
   public:
@@ -431,7 +431,7 @@ class ConcreteStackFrame<void> : public BaseStackFrame {
     bool isSelfHosted() const override { MOZ_CRASH("null JS::ubi::StackFrame"); }
 };
 
-bool ConstructSavedFrameStackSlow(JSContext* cx, JS::ubi::StackFrame& frame,
+JS_FRIEND_API(bool) ConstructSavedFrameStackSlow(JSContext* cx, JS::ubi::StackFrame& frame,
                                   MutableHandleObject outSavedFrameStack);
 
 
