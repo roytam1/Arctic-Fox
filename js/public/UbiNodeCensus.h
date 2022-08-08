@@ -77,14 +77,14 @@ struct Census;
 
 class CountBase;
 
-struct CountDeleter {
+struct JS_FRIEND_API(CountDeleter) {
     void operator()(CountBase*);
 };
 
 using CountBasePtr = UniquePtr<CountBase, CountDeleter>;
 
 // Abstract base class for CountType nodes.
-struct CountType {
+struct JS_FRIEND_API(CountType) {
     explicit CountType(Census& census) : census(census) { }
     virtual ~CountType() { }
 
@@ -113,7 +113,7 @@ struct CountType {
 using CountTypePtr = UniquePtr<CountType, JS::DeletePolicy<CountType>>;
 
 // An abstract base class for count tree nodes.
-class CountBase {
+class JS_FRIEND_API(CountBase) {
     // In lieu of a vtable, each CountBase points to its type, which
     // carries not only the implementations of the CountBase methods, but also
     // additional parameters for the type's behavior, as specified in the
@@ -160,7 +160,7 @@ class RootedCount : JS::CustomAutoRooter {
 };
 
 // Common data for a census traversal, shared across all CountType nodes.
-struct Census {
+struct JS_FRIEND_API(Census) {
     JSContext* const cx;
     // If the targetZones set is non-empty, then only consider nodes whose zone
     // is an element of the set. If the targetZones set is empty, then nodes in
@@ -187,7 +187,7 @@ struct Census {
 
 // A BreadthFirst handler type that conducts a census, using a CountBase to
 // categorize and count each node.
-class CensusHandler {
+class JS_FRIEND_API(CensusHandler) {
     Census& census;
     CountBasePtr& rootCount;
 
@@ -213,7 +213,7 @@ using CensusTraversal = BreadthFirst<CensusHandler>;
 
 // Examine the census options supplied by the API consumer, and use that to
 // build a CountType tree.
-bool ParseCensusOptions(JSContext* cx, Census& census, HandleObject options,
+JS_FRIEND_API(bool) ParseCensusOptions(JSContext* cx, Census& census, HandleObject options,
                         CountTypePtr& outResult);
 
 } // namespace ubi
