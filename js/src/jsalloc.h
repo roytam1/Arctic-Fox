@@ -44,7 +44,7 @@ class SystemAllocPolicy
 };
 
 class ExclusiveContext;
-void ReportOutOfMemory(ExclusiveContext* cxArg);
+JS_FRIEND_API(void) ReportOutOfMemory(ExclusiveContext* cxArg);
 
 /*
  * Allocation policy that calls the system memory functions and reports errors
