@@ -201,7 +201,7 @@ using mozilla::Variant;
 // heap snapshots store their strings as const char16_t*. In order to provide
 // zero-cost accessors to these strings in a single interface that works with
 // both cases, we use this variant type.
-class AtomOrTwoByteChars : public Variant<JSAtom*, const char16_t*> {
+class JS_FRIEND_API(AtomOrTwoByteChars) : public Variant<JSAtom*, const char16_t*> {
     using Base = Variant<JSAtom*, const char16_t*>;
 
   public:
