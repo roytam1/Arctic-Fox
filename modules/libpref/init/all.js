@@ -1181,6 +1181,8 @@ pref("devtools.devices.url", "https://code.cdn.mozilla.net/devices/devices.json"
 // URL of the remote JSON catalog used for device simulation
 pref("devtools.devices.url", "https://code.cdn.mozilla.net/devices/devices.json");
 
+// Allows setting the performance marks for which telemetry metrics will be recorded.
+pref("devtools.telemetry.supported_performance_marks", "contentInteractive,navigationInteractive,navigationLoaded,visuallyLoaded,fullyLoaded,mediaEnumerated,scanEnd");
 
 // Deprecation warnings after DevTools file migration.  Bug 1204127 tracks
 // enabling this.
@@ -5322,3 +5324,5 @@ pref("plugins.rewrite_youtube_embeds", true);
 
 // Expose Request.context. Currently disabled since the spec is in flux.
 pref("dom.requestcontext.enabled", false);
+
+pref("dom.mozKillSwitch.enabled", false);
