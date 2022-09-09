@@ -5016,7 +5016,7 @@ nsDocument::MozSetImageElement(const nsAString& aImageElementId,
   if (entry) {
     entry->SetImageElement(aElement);
     if (entry->IsEmpty()) {
-      mIdentifierMap.RemoveEntry(aImageElementId);
+      mIdentifierMap.RemoveEntry(entry);
     }
   }
 }
@@ -9374,7 +9374,7 @@ nsDocument::ForgetLink(Link* aLink)
   NS_ASSERTION(entry || mStyledLinksCleared,
                "Document knows nothing about this Link!");
 #endif
-  (void)mStyledLinks.RemoveEntry(aLink);
+  mStyledLinks.RemoveEntry(aLink);
 }
 
 void
@@ -10093,11 +10093,14 @@ nsIDocument::RegisterActivityObserver(nsISupports* aSupports)
 bool
 nsIDocument::UnregisterActivityObserver(nsISupports* aSupports)
 {
-  if (!mActivityObservers)
+  if (!mActivityObservers) {
     return false;
-  if (!mActivityObservers->GetEntry(aSupports))
+  }
+  nsPtrHashKey<nsISupports>* entry = mActivityObservers->GetEntry(aSupports);
+  if (!entry) {
     return false;
-  mActivityObservers->RemoveEntry(aSupports);
+  }
+  mActivityObservers->RemoveEntry(entry);
   return true;
 }
 
@@ -12899,22 +12902,6 @@ bool
 nsIDocument::HasScriptsBlockedBySandbox()
 {
   return mSandboxFlags & SANDBOXED_SCRIPTS;
-}
-
-bool
-nsIDocument::InlineScriptAllowedByCSP()
-{
-  nsCOMPtr<nsIContentSecurityPolicy> csp;
-  nsresult rv = NodePrincipal()->GetCsp(getter_AddRefs(csp));
-  NS_ENSURE_SUCCESS(rv, true);
-  bool allowsInlineScript = true;
-  bool reportViolations = false;
-  if (csp) {
-    nsresult rv = csp->GetAllowsInlineScript(&reportViolations,
-                                             &allowsInlineScript);
-    NS_ENSURE_SUCCESS(rv, true);
-  }
-  return allowsInlineScript;
 }
 
 nsIDocument*
