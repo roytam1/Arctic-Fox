@@ -184,8 +184,8 @@ def config_status(topobjdir='.', topsrcdir='.',
                 print('\n'.join(diff))
 
     # Advertise Visual Studio if appropriate.
-    if os.name == 'nt' and 'VisualStudio' not in options.backend:
-        print(VISUAL_STUDIO_ADVERTISEMENT)
+    #if os.name == 'nt' and 'VisualStudio' not in options.backend:
+    #    print(VISUAL_STUDIO_ADVERTISEMENT)
 
     # Advertise Eclipse if it is appropriate.
     if MachCommandConditions.is_android(env):
