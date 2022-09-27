@@ -1662,36 +1662,6 @@ this.PlacesUtils = {
   },
 
   /**
-   * Returns the passed URL with a #-moz-resolution fragment
-   * for the specified dimensions and devicePixelRatio.
-   *
-   * @param aWindow
-   *        A window from where we want to get the device
-   *        pixel Ratio
-   *
-   * @param aURL
-   *        The URL where we should add the fragment
-   *
-   * @param aWidth
-   *        The target image width
-   *
-   * @param aHeight
-   *        The target image height
-   *
-   * @return The URL with the fragment at the end
-   */
-  getImageURLForResolution:
-  function PU_getImageURLForResolution(aWindow, aURL, aWidth = 16, aHeight = 16) {
-    if (!aURL.endsWith('.ico') && !aURL.endsWith('.ICO')) {
-      return aURL;
-    }
-    let width  = Math.round(aWidth * aWindow.devicePixelRatio);
-    let height = Math.round(aHeight * aWindow.devicePixelRatio);
-    return aURL + (aURL.includes("#") ? "&" : "#") +
-           "-moz-resolution=" + width + "," + height;
-  },
-
-  /**
    * Get the unique id for an item (a bookmark, a folder or a separator) given
    * its item id.
    *
@@ -1923,6 +1893,7 @@ this.PlacesUtils = {
         { tags_folder: PlacesUtils.tagsFolderId,
           charset_anno: PlacesUtils.CHARSET_ANNO,
           item_guid: aItemGuid });
+    let yieldCounter = 0;
     for (let row of rows) {
       let item;
       if (!rootItem) {
@@ -1961,6 +1932,14 @@ this.PlacesUtils = {
 
       if (item.type == this.TYPE_X_MOZ_PLACE_CONTAINER)
         parentsMap.set(item.guid, item);
+
+      // With many bookmarks we end up stealing the CPU - even with yielding!
+      // So we let everyone else have a go every few items (bug 1186714).
+      if (++yieldCounter % 50 == 0) {
+        yield new Promise(resolve => {
+          Services.tm.currentThread.dispatch(resolve, Ci.nsIThread.DISPATCH_NORMAL);
+        });
+      }
     }
 
     return rootItem;
@@ -2066,7 +2045,7 @@ XPCOMUtils.defineLazyGetter(this, "bundle", function() {
 
 // A promise resolved once the Sqlite.jsm connections
 // can be closed.
-let promiseCanCloseConnection = function() {
+var promiseCanCloseConnection = function() {
   let TOPIC = "places-will-close-connection";
   return new Promise(resolve => {
     let observer = function() {
@@ -2443,16 +2422,17 @@ var GuidHelper = {
     if (cached !== undefined)
       return cached;
 
-    let conn = yield PlacesUtils.promiseDBConnection();
+    let itemId = yield PlacesUtils.withConnectionWrapper("GuidHelper.getItemId",
+                                                         Task.async(function* (db) {
+      let rows = yield db.executeCached(
+        "SELECT b.id, b.guid from moz_bookmarks b WHERE b.guid = :guid LIMIT 1",
+        { guid: aGuid });
+      if (rows.length == 0)
+        throw new Error("no item found for the given GUID");
 
-    let rows = yield conn.executeCached(
-      "SELECT b.id, b.guid from moz_bookmarks b WHERE b.guid = :guid LIMIT 1",
-      { guid: aGuid });
-    if (rows.length == 0)
-      throw new Error("no item found for the given GUID");
+      return rows[0].getResultByName("id");
+    }));
 
-    this.ensureObservingRemovedItems();
-    let itemId = rows[0].getResultByName("id");
     this.updateCache(itemId, aGuid);
     return itemId;
   }),
@@ -2462,16 +2442,18 @@ var GuidHelper = {
     if (cached !== undefined)
       return cached;
 
-    let conn = yield PlacesUtils.promiseDBConnection();
+    let guid = yield PlacesUtils.withConnectionWrapper("GuidHelper.getItemGuid",
+                                                       Task.async(function* (db) {
 
-    let rows = yield conn.executeCached(
-      "SELECT b.id, b.guid from moz_bookmarks b WHERE b.id = :id LIMIT 1",
-      { id: aItemId });
-    if (rows.length == 0)
-      throw new Error("no item found for the given itemId");
+      let rows = yield db.executeCached(
+        "SELECT b.id, b.guid from moz_bookmarks b WHERE b.id = :id LIMIT 1",
+        { id: aItemId });
+      if (rows.length == 0)
+        throw new Error("no item found for the given itemId");
 
-    this.ensureObservingRemovedItems();
-    let guid = rows[0].getResultByName("guid");
+      return rows[0].getResultByName("guid");
+    }));
+
     this.updateCache(aItemId, guid);
     return guid;
   }),
@@ -2487,6 +2469,7 @@ var GuidHelper = {
       throw new Error("Trying to update the GUIDs cache with an invalid itemId");
     if (typeof(aGuid) != "string" || !/^[a-zA-Z0-9\-_]{12}$/.test(aGuid))
       throw new Error("Trying to update the GUIDs cache with an invalid GUID");
+    this.ensureObservingRemovedItems();
     this.guidsForIds.set(aItemId, aGuid);
     this.idsForGuids.set(aGuid, aItemId);
   },
@@ -2959,7 +2942,7 @@ PlacesCreateLivemarkTransaction.prototype = {
 
   doTransaction: function CLTXN_doTransaction()
   {
-    PlacesUtils.livemarks.addLivemark(
+    this._promise = PlacesUtils.livemarks.addLivemark(
       { title: this.item.title
       , feedURI: this.item.feedURI
       , parentId: this.item.parentId
@@ -2978,7 +2961,7 @@ PlacesCreateLivemarkTransaction.prototype = {
   {
     // The getLivemark callback may fail, but it is used just to serialize,
     // so it doesn't matter.
-    PlacesUtils.livemarks.getLivemark({ id: this.item.id })
+    this._promise = PlacesUtils.livemarks.getLivemark({ id: this.item.id })
       .then(null, null).then( () => {
         PlacesUtils.bookmarks.removeItem(this.item.id);
       });
