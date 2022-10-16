@@ -1152,7 +1152,7 @@ TSFStaticSink::EnsureInitActiveTIPKeyboard()
     return false;
   }
 
-  nsRefPtr<IEnumTfLanguageProfiles> enumLangProfiles;
+  RefPtr<IEnumTfLanguageProfiles> enumLangProfiles;
   hr = mInputProcessorProfiles->EnumLanguageProfiles(langID,
                                   getter_AddRefs(enumLangProfiles));
   if (FAILED(hr) || !enumLangProfiles) {
