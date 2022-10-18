@@ -3577,3 +3577,15 @@ toolbarbutton.bookmark-item[dragover="true"][open="true"] {
 .browser-action-panel > .panel-arrowcontainer > .panel-arrowcontent {
   padding: 0;
 }
+
+%include ../shared/contextmenu.inc.css
+
+#context-navigation {
+  background-color: menu;
+  padding-bottom: 4px;
+}
+
+#context-sep-navigation {
+  -moz-margin-start: -28px;
+  margin-top: -4px;
+}

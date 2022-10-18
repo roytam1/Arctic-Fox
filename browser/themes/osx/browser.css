@@ -2180,3 +2180,10 @@ toolbarbutton.bookmark-item[dragover="true"][open="true"] {
 .browser-action-panel > .panel-arrowcontainer > .panel-arrowcontent {
   padding: 0;
 }
+
+%include ../shared/contextmenu.inc.css
+
+#context-navigation > .menuitem-iconic {
+  padding-left: 0;
+  padding-right: 0;
+}
