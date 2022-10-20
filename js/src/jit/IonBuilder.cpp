@@ -1869,7 +1869,8 @@ IonBuilder::inspectOpcode(JSOp op)
 
       case JSOP_CALL:
       case JSOP_NEW:
-        return jsop_call(GET_ARGC(pc), (JSOp)*pc == JSOP_NEW);
+      case JSOP_SUPERCALL:
+        return jsop_call(GET_ARGC(pc), (JSOp)*pc == JSOP_NEW || (JSOp)*pc == JSOP_SUPERCALL);
 
       case JSOP_EVAL:
       case JSOP_STRICTEVAL:
@@ -4482,6 +4483,15 @@ IonBuilder::processReturn(JSOp op)
         MOZ_CRASH("unknown return op");
     }
 
+    if (script()->isDerivedClassConstructor() &&
+        def->type() != MIRType_Object)
+    {
+        MOZ_ASSERT(info().funMaybeLazy() && info().funMaybeLazy()->isClassConstructor());
+        MCheckReturn* checkRet = MCheckReturn::New(alloc(), def, current->getSlot(info().thisSlot()));
+        current->add(checkRet);
+        def = checkRet;
+    }
+
     MReturn* ret = MReturn::New(alloc(), def);
     current->end(ret);
 
@@ -4957,7 +4967,7 @@ IonBuilder::inlineScriptedCall(CallInfo& callInfo, JSFunction* target)
 
     // Create new |this| on the caller-side for inlined constructors.
     if (callInfo.constructing()) {
-        MDefinition* thisDefn = createThis(target, callInfo.fun());
+        MDefinition* thisDefn = createThis(target, callInfo.fun(), callInfo.getNewTarget());
         if (!thisDefn)
             return false;
         callInfo.setThis(thisDefn);
@@ -6052,7 +6062,7 @@ IonBuilder::createCallObject(MDefinition* callee, MDefinition* scope)
 }
 
 MDefinition*
-IonBuilder::createThisScripted(MDefinition* callee)
+IonBuilder::createThisScripted(MDefinition* callee, MDefinition* newTarget)
 {
     // Get callee.prototype.
     //
@@ -6067,12 +6077,12 @@ IonBuilder::createThisScripted(MDefinition* callee)
     //       and thus invalidation.
     MInstruction* getProto;
     if (!invalidatedIdempotentCache()) {
-        MGetPropertyCache* getPropCache = MGetPropertyCache::New(alloc(), callee, names().prototype,
+        MGetPropertyCache* getPropCache = MGetPropertyCache::New(alloc(), newTarget, names().prototype,
                                                                  /* monitored = */ false);
         getPropCache->setIdempotent();
         getProto = getPropCache;
     } else {
-        MCallGetProperty* callGetProp = MCallGetProperty::New(alloc(), callee, names().prototype,
+        MCallGetProperty* callGetProp = MCallGetProperty::New(alloc(), newTarget, names().prototype,
                                                               /* callprop = */ false);
         callGetProp->setIdempotent();
         getProto = callGetProp;
@@ -6080,7 +6090,7 @@ IonBuilder::createThisScripted(MDefinition* callee)
     current->add(getProto);
 
     // Create this from prototype
-    MCreateThisWithProto* createThis = MCreateThisWithProto::New(alloc(), callee, getProto);
+    MCreateThisWithProto* createThis = MCreateThisWithProto::New(alloc(), callee, newTarget, getProto);
     current->add(createThis);
 
     return createThis;
@@ -6148,6 +6158,8 @@ IonBuilder::createThisScriptedBaseline(MDefinition* callee)
         return nullptr;
 
     JSObject* templateObject = inspector->getTemplateObject(pc);
+    if (!templateObject)
+        return nullptr;
     if (!templateObject->is<PlainObject>() && !templateObject->is<UnboxedPlainObject>())
         return nullptr;
 
@@ -6198,14 +6210,14 @@ IonBuilder::createThisScriptedBaseline(MDefinition* callee)
 }
 
 MDefinition*
-IonBuilder::createThis(JSFunction* target, MDefinition* callee)
+IonBuilder::createThis(JSFunction* target, MDefinition* callee, MDefinition* newTarget)
 {
     // Create |this| for unknown target.
     if (!target) {
         if (MDefinition* createThis = createThisScriptedBaseline(callee))
             return createThis;
 
-        MCreateThis* createThis = MCreateThis::New(alloc(), callee);
+        MCreateThis* createThis = MCreateThis::New(alloc(), callee, newTarget);
         current->add(createThis);
         return createThis;
     }
@@ -6220,6 +6232,11 @@ IonBuilder::createThis(JSFunction* target, MDefinition* callee)
         return magic;
     }
 
+    if (target->isDerivedClassConstructor()) {
+        MOZ_ASSERT(target->isClassConstructor());
+        return constant(MagicValue(JS_UNINITIALIZED_LEXICAL));
+    }
+
     // Try baking in the prototype.
     if (MDefinition* createThis = createThisScriptedSingleton(target, callee))
         return createThis;
@@ -6227,7 +6244,7 @@ IonBuilder::createThis(JSFunction* target, MDefinition* callee)
     if (MDefinition* createThis = createThisScriptedBaseline(callee))
         return createThis;
 
-    return createThisScripted(callee);
+    return createThisScripted(callee, newTarget);
 }
 
 bool
@@ -6617,7 +6634,7 @@ IonBuilder::makeCallHelper(JSFunction* target, CallInfo& callInfo)
 
     // Inline the constructor on the caller-side.
     if (callInfo.constructing()) {
-        MDefinition* create = createThis(target, callInfo.fun());
+        MDefinition* create = createThis(target, callInfo.fun(), callInfo.getNewTarget());
         if (!create) {
             abort("Failure inlining constructor for call.");
             return nullptr;
@@ -12745,9 +12762,21 @@ IonBuilder::jsop_this()
 
     if (script()->strict() || info().funMaybeLazy()->isSelfHostedBuiltin()) {
         // No need to wrap primitive |this| in strict mode or self-hosted code.
-        current->pushSlot(info().thisSlot());
+        MDefinition* thisVal = current->getSlot(info().thisSlot());
+        if (script()->isDerivedClassConstructor()) {
+            MOZ_ASSERT(info().funMaybeLazy()->isClassConstructor());
+            MOZ_ASSERT(script()->strict());
+
+            MLexicalCheck* checkThis = MLexicalCheck::New(alloc(), thisVal, Bailout_UninitializedThis);
+            current->add(checkThis);
+            thisVal = checkThis;
+        }
+
+        current->push(thisVal);
         return true;
     }
+
+    MOZ_ASSERT(!info().funMaybeLazy()->isClassConstructor());
 
     if (thisTypes && (thisTypes->getKnownMIRType() == MIRType_Object ||
         (thisTypes->empty() && baselineFrame_ && baselineFrame_->thisType.isSomeObject())))
