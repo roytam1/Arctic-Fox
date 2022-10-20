@@ -5459,7 +5459,7 @@ class AutoStopwatch;
  * provide a concrete implementation of this class, as well as the
  * relevant callbacks (see below).
  */
-struct PerformanceGroup {
+struct JS_PUBLIC_API(PerformanceGroup) {
     PerformanceGroup();
 
     // The current iteration of the event loop.
