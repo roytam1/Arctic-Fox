@@ -323,8 +323,8 @@ pref("browser.urlbar.rss", true);
 
 pref("browser.altClickSave", false);
 
-// Enable logging downloads operations to the Error Console.
-pref("browser.download.debug", false);
+// Enable logging downloads operations to the Console.
+pref("browser.download.loglevel", "Error");
 
 // Number of milliseconds to wait for the http headers (and thus
 // the Content-Disposition filename) before giving up and falling back to
@@ -1141,6 +1141,9 @@ pref("devtools.command-button-measure.enabled", false);
 
 // Enable the MDN docs tooltip
 pref("devtools.inspector.mdnDocsTooltip.enabled", true);
+
+// DevTools default color unit
+pref("devtools.defaultColorUnit", "authored");
 
 // Enable the Debugger
 pref("devtools.debugger.enabled", true);
