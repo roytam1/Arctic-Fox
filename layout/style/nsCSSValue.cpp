@@ -23,6 +23,7 @@
 #include "nsPresContext.h"
 #include "nsStyleUtil.h"
 #include "nsDeviceContext.h"
+#include "nsStyleSet.h"
 
 using namespace mozilla;
 
@@ -2343,7 +2344,6 @@ css::URLValue::URLValue(nsIURI* aURI, nsStringBuffer* aString,
     mURIResolved(true)
 {
   MOZ_ASSERT(aOriginPrincipal, "Must have an origin principal");
-  mString->AddRef();
 }
 
 css::URLValue::URLValue(nsStringBuffer* aString, nsIURI* aBaseURI,
@@ -2355,12 +2355,6 @@ css::URLValue::URLValue(nsStringBuffer* aString, nsIURI* aBaseURI,
     mURIResolved(false)
 {
   MOZ_ASSERT(aOriginPrincipal, "Must have an origin principal");
-  mString->AddRef();
-}
-
-css::URLValue::~URLValue()
-{
-  mString->Release();
 }
 
 bool
@@ -2544,6 +2538,7 @@ nsCSSValueGradient::SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) con
 nsCSSValueTokenStream::nsCSSValueTokenStream()
   : mPropertyID(eCSSProperty_UNKNOWN)
   , mShorthandPropertyID(eCSSProperty_UNKNOWN)
+  , mLevel(SheetType::Count)
 {
   MOZ_COUNT_CTOR(nsCSSValueTokenStream);
 }
