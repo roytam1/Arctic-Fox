@@ -1720,6 +1720,26 @@ CSS_PROP_POSITION(
     kJustifyContentKTable,
     offsetof(nsStylePosition, mJustifyContent),
     eStyleAnimType_EnumU8)
+CSS_PROP_POSITION(
+    justify-items,
+    justify_items,
+    JustifyItems,
+    CSS_PROPERTY_PARSE_FUNCTION,
+    "",
+    0,
+    nullptr,
+    CSS_PROP_NO_OFFSET,
+    eStyleAnimType_None)
+CSS_PROP_POSITION(
+    justify-self,
+    justify_self,
+    JustifySelf,
+    CSS_PROPERTY_PARSE_FUNCTION,
+    "",
+    0,
+    nullptr,
+    CSS_PROP_NO_OFFSET,
+    eStyleAnimType_None)
 CSS_PROP_DISPLAY(
     float,
     float,

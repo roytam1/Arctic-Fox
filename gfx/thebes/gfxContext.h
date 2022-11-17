@@ -53,6 +53,7 @@ class gfxContext final {
     typedef mozilla::gfx::Pattern Pattern;
     typedef mozilla::gfx::Rect Rect;
     typedef mozilla::gfx::RectCornerRadii RectCornerRadii;
+    typedef mozilla::gfx::Size Size;
 
     NS_INLINE_DECL_REFCOUNTING(gfxContext)
 
@@ -194,7 +195,7 @@ public:
      * Converts a size from device to user coordinates. This does not apply
      * translation components of the matrix.
      */
-    gfxSize DeviceToUser(const gfxSize& size) const;
+    Size DeviceToUser(const Size& size) const;
 
     /**
      * Converts a rectangle from device to user coordinates; this has the
@@ -213,7 +214,7 @@ public:
      * Converts a size from user to device coordinates. This does not apply
      * translation components of the matrix.
      */
-    gfxSize UserToDevice(const gfxSize& size) const;
+    Size UserToDevice(const Size& size) const;
 
     /**
      * Converts a rectangle from user to device coordinates.  The
@@ -430,6 +431,11 @@ public:
      * Groups
      */
     void PushGroup(gfxContentType content = gfxContentType::COLOR);
+
+    void PushGroupForBlendBack(gfxContentType content, mozilla::gfx::Float aOpacity = 1.0f,
+                               mozilla::gfx::SourceSurface* aMask = nullptr,
+                               const mozilla::gfx::Matrix& aMaskTransform = mozilla::gfx::Matrix());
+
     /**
      * Like PushGroup, but if the current surface is gfxContentType::COLOR and
      * content is gfxContentType::COLOR_ALPHA, makes the pushed surface gfxContentType::COLOR
@@ -444,6 +450,7 @@ public:
     void PushGroupAndCopyBackground(gfxContentType content = gfxContentType::COLOR);
     already_AddRefed<gfxPattern> PopGroup();
     void PopGroupToSource();
+    void PopGroupAndBlend();
 
     already_AddRefed<mozilla::gfx::SourceSurface>
     PopGroupToSurface(mozilla::gfx::Matrix* aMatrix);
@@ -526,6 +533,11 @@ private:
     Color fontSmoothingBackgroundColor;
     // This is used solely for using minimal intermediate surface size.
     mozilla::gfx::Point deviceOffset;
+    // Support groups
+    mozilla::gfx::Float mBlendOpacity;
+    RefPtr<SourceSurface> mBlendMask;
+    Matrix mBlendMaskTransform;
+    mozilla::DebugOnly<bool> mWasPushedForBlendBack;
   };
 
   // This ensures mPath contains a valid path (in user space!)

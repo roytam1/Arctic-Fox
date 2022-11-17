@@ -90,8 +90,8 @@ static int safe_strcmp(const char16_t* a, const char16_t* b)
   return NS_strcmp(a, b);
 }
 
-static nsChangeHint CalcShadowDifference(nsCSSShadowArray* lhs,
-                                         nsCSSShadowArray* rhs);
+static bool AreShadowArraysEqual(nsCSSShadowArray* lhs,
+                                 nsCSSShadowArray* rhs);
 
 // --------------------
 // nsStyleFont
@@ -517,22 +517,26 @@ nsStyleBorder::Destroy(nsPresContext* aContext) {
 
 nsChangeHint nsStyleBorder::CalcDifference(const nsStyleBorder& aOther) const
 {
-  nsChangeHint shadowDifference =
-    CalcShadowDifference(mBoxShadow, aOther.mBoxShadow);
-  MOZ_ASSERT(shadowDifference == unsigned(NS_STYLE_HINT_REFLOW) ||
-             shadowDifference == unsigned(NS_STYLE_HINT_VISUAL) ||
-             shadowDifference == unsigned(NS_STYLE_HINT_NONE),
-             "should do more with shadowDifference");
-
   // XXXbz we should be able to return a more specific change hint for
   // at least GetComputedBorder() differences...
   if (mTwipsPerPixel != aOther.mTwipsPerPixel ||
       GetComputedBorder() != aOther.GetComputedBorder() ||
       mFloatEdge != aOther.mFloatEdge ||
       mBorderImageOutset != aOther.mBorderImageOutset ||
-      (shadowDifference & nsChangeHint_NeedReflow) ||
       mBoxDecorationBreak != aOther.mBoxDecorationBreak)
     return NS_STYLE_HINT_REFLOW;
+
+  nsChangeHint boxShadowHint = nsChangeHint(0);
+  if (!AreShadowArraysEqual(mBoxShadow, aOther.mBoxShadow)) {
+    // Update overflow regions & trigger DLBI to be sure it's noticed:
+    NS_UpdateHint(boxShadowHint, nsChangeHint_UpdateOverflow);
+    NS_UpdateHint(boxShadowHint, nsChangeHint_SchedulePaint);
+    // Also request a repaint, since it's possible that only the color
+    // of the shadow is changing (and UpdateOverflow/SchedulePaint won't
+    // repaint for that, since they won't know what needs invalidating.)
+    NS_UpdateHint(boxShadowHint, nsChangeHint_RepaintFrame);
+    // Don't return yet; we may also need nsChangeHint_BorderStyleNoneChange.
+  }
 
   NS_FOR_CSS_SIDES(ix) {
     // See the explanation in nsChangeHint.h of
@@ -541,9 +545,17 @@ nsChangeHint nsStyleBorder::CalcDifference(const nsStyleBorder& aOther) const
     // assume a repaint hint for some other change rather than bother
     // tracking this result through the rest of the function.
     if (HasVisibleStyle(ix) != aOther.HasVisibleStyle(ix)) {
-      return NS_CombineHint(nsChangeHint_RepaintFrame,
+      return NS_CombineHint(boxShadowHint,
+                            nsChangeHint_RepaintFrame |
                             nsChangeHint_BorderStyleNoneChange);
     }
+  }
+
+  if (boxShadowHint) {
+    // NOTE: This hint (UpdateOverflow + SchedulePaint + RepaintFrame) is
+    // expected to subsume all hints returned after this point. (Hence, we're
+    // OK to return early.)
+    return boxShadowHint;
   }
 
   // Note that mBorderStyle stores not only the border style but also
@@ -580,10 +592,6 @@ nsChangeHint nsStyleBorder::CalcDifference(const nsStyleBorder& aOther) const
                                  aOther.mBorderColors[ix]))
         return nsChangeHint_RepaintFrame;
     }
-  }
-
-  if (shadowDifference) {
-    return shadowDifference;
   }
 
   // mBorder is the specified border value.  Changes to this don't
@@ -1426,6 +1434,8 @@ nsStylePosition::nsStylePosition(void)
   mAlignContent = NS_STYLE_ALIGN_CONTENT_STRETCH;
   mAlignItems = NS_STYLE_ALIGN_ITEMS_INITIAL_VALUE;
   mAlignSelf = NS_STYLE_ALIGN_SELF_AUTO;
+  mJustifyItems = NS_STYLE_JUSTIFY_AUTO;
+  mJustifySelf = NS_STYLE_JUSTIFY_AUTO;
   mFlexDirection = NS_STYLE_FLEX_DIRECTION_ROW;
   mFlexWrap = NS_STYLE_FLEX_WRAP_NOWRAP;
   mJustifyContent = NS_STYLE_JUSTIFY_CONTENT_FLEX_START;
@@ -1465,6 +1475,8 @@ nsStylePosition::nsStylePosition(const nsStylePosition& aSource)
   , mAlignContent(aSource.mAlignContent)
   , mAlignItems(aSource.mAlignItems)
   , mAlignSelf(aSource.mAlignSelf)
+  , mJustifyItems(aSource.mJustifyItems)
+  , mJustifySelf(aSource.mJustifySelf)
   , mFlexDirection(aSource.mFlexDirection)
   , mFlexWrap(aSource.mFlexWrap)
   , mJustifyContent(aSource.mJustifyContent)
@@ -1577,9 +1589,11 @@ nsStylePosition::CalcDifference(const nsStylePosition& aOther,
     return NS_CombineHint(hint, nsChangeHint_AllReflowHints);
   }
 
-  // Changing justify-content on a flexbox might affect the positioning of its
-  // children, but it won't affect any sizing.
-  if (mJustifyContent != aOther.mJustifyContent) {
+  // Changing 'justify-content/items/self' might affect the positioning,
+  // but it won't affect any sizing.
+  if (mJustifyContent != aOther.mJustifyContent ||
+      mJustifyItems != aOther.mJustifyItems ||
+      mJustifySelf != aOther.mJustifySelf) {
     NS_UpdateHint(hint, nsChangeHint_NeedReflow);
   }
 
@@ -1659,6 +1673,86 @@ nsStylePosition::WidthCoordDependsOnContainer(const nsStyleCoord &aCoord)
          (aCoord.GetUnit() == eStyleUnit_Enumerated &&
           (aCoord.GetIntValue() == NS_STYLE_WIDTH_FIT_CONTENT ||
            aCoord.GetIntValue() == NS_STYLE_WIDTH_AVAILABLE));
+}
+
+static nsStyleContext*
+GetAlignmentContainer(nsStyleContext* aParent,
+                      const nsStylePosition** aPosition,
+                      const nsStyleDisplay** aDisplay)
+{
+  while (aParent &&
+         aParent->StyleDisplay()->mDisplay == NS_STYLE_DISPLAY_CONTENTS) {
+    aParent = aParent->GetParent();
+  }
+  if (aParent) {
+    *aPosition = aParent->StylePosition();
+    *aDisplay = aParent->StyleDisplay();
+  }
+  return aParent;
+}
+
+uint8_t
+nsStylePosition::MapLeftRightToStart(uint8_t aAlign, LogicalAxis aAxis,
+                                     const nsStyleDisplay* aDisplay) const
+{
+  auto val = aAlign & ~NS_STYLE_ALIGN_FLAG_BITS;
+  if (val == NS_STYLE_ALIGN_LEFT || val == NS_STYLE_ALIGN_RIGHT) {
+    switch (aDisplay->mDisplay) {
+    case NS_STYLE_DISPLAY_FLEX:
+    case NS_STYLE_DISPLAY_INLINE_FLEX:
+      // XXX TODO
+      // NOTE: make sure to strip off 'legacy' bit when mapping to 'start'
+      break;
+    default:
+      if (aAxis == eLogicalAxisBlock) {
+        return NS_STYLE_ALIGN_START | (aAlign & NS_STYLE_ALIGN_FLAG_BITS);
+      }
+    }
+  }
+  return aAlign;
+}
+
+uint8_t
+nsStylePosition::ComputedJustifyItems(const nsStyleDisplay* aDisplay,
+                                      nsStyleContext* aParent) const
+{
+  if (mJustifyItems != NS_STYLE_JUSTIFY_AUTO) {
+    return mJustifyItems;
+  }
+  if (MOZ_LIKELY(aParent)) {
+    auto inheritedJustifyItems =
+      aParent->StylePosition()->ComputedJustifyItems(aParent->StyleDisplay(),
+                                                     aParent->GetParent());
+    if (inheritedJustifyItems & NS_STYLE_JUSTIFY_LEGACY) {
+      return inheritedJustifyItems;
+    }
+  }
+  return aDisplay->IsFlexOrGridDisplayType() ? NS_STYLE_JUSTIFY_STRETCH
+                                             : NS_STYLE_JUSTIFY_START;
+}
+
+uint8_t
+nsStylePosition::ComputedJustifySelf(const nsStyleDisplay* aDisplay,
+                                     nsStyleContext* aParent) const
+{
+  const nsStylePosition* containerPos = this;
+  const nsStyleDisplay* containerDisp = aDisplay;
+  GetAlignmentContainer(aParent, &containerPos, &containerDisp);
+  if (mJustifySelf != NS_STYLE_JUSTIFY_AUTO) {
+    return containerPos->MapLeftRightToStart(mJustifySelf, eLogicalAxisInline,
+                                             containerDisp);
+  }
+  if (MOZ_UNLIKELY(aDisplay->IsAbsolutelyPositionedStyle())) {
+    return NS_STYLE_JUSTIFY_AUTO;
+  }
+  if (MOZ_LIKELY(aParent)) {
+    auto inheritedJustifyItems = aParent->StylePosition()->
+      ComputedJustifyItems(aParent->StyleDisplay(), aParent->GetParent());
+    inheritedJustifyItems &= ~NS_STYLE_JUSTIFY_LEGACY;
+    return containerPos->MapLeftRightToStart(inheritedJustifyItems,
+                                             eLogicalAxisInline, containerDisp);
+  }
+  return NS_STYLE_JUSTIFY_START;
 }
 
 // --------------------
@@ -3402,25 +3496,22 @@ nsChangeHint nsStyleTextReset::CalcDifference(const nsStyleTextReset& aOther) co
   return NS_STYLE_HINT_REFLOW;
 }
 
-// Allowed to return one of NS_STYLE_HINT_NONE, NS_STYLE_HINT_REFLOW
-// or NS_STYLE_HINT_VISUAL. Currently we just return NONE or REFLOW, though.
-// XXXbz can this not return a more specific hint?  If that's ever
-// changed, nsStyleBorder::CalcDifference will need changing too.
-static nsChangeHint
-CalcShadowDifference(nsCSSShadowArray* lhs,
+// Returns true if the given shadow-arrays are equal.
+static bool
+AreShadowArraysEqual(nsCSSShadowArray* lhs,
                      nsCSSShadowArray* rhs)
 {
   if (lhs == rhs)
-    return NS_STYLE_HINT_NONE;
+    return true;
 
   if (!lhs || !rhs || lhs->Length() != rhs->Length())
-    return NS_STYLE_HINT_REFLOW;
+    return false;
 
   for (uint32_t i = 0; i < lhs->Length(); ++i) {
     if (*lhs->ShadowAt(i) != *rhs->ShadowAt(i))
-      return NS_STYLE_HINT_REFLOW;
+      return false;
   }
-  return NS_STYLE_HINT_NONE;
+  return true;
 }
 
 // --------------------
@@ -3516,7 +3607,12 @@ nsChangeHint nsStyleText::CalcDifference(const nsStyleText& aOther) const
       (mTabSize != aOther.mTabSize))
     return NS_STYLE_HINT_REFLOW;
 
-  return CalcShadowDifference(mTextShadow, aOther.mTextShadow);
+  if (!AreShadowArraysEqual(mTextShadow, aOther.mTextShadow)) {
+    return nsChangeHint_UpdateSubtreeOverflow |
+           nsChangeHint_SchedulePaint |
+           nsChangeHint_RepaintFrame;
+  }
+  return NS_STYLE_HINT_NONE;
 }
 
 //-----------------------
