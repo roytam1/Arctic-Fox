@@ -131,6 +131,7 @@ JSRuntime::JSRuntime(JSRuntime* parentRuntime)
     jitJSContext(nullptr),
     jitActivation(nullptr),
     jitStackLimit_(0xbad),
+    jitStackLimitNoInterrupt_(0xbad),
     activation_(nullptr),
     profilingActivation_(nullptr),
     profilerSampleBufferGen_(0),
@@ -294,10 +295,6 @@ JSRuntime::init(uint32_t maxbytes, uint32_t maxNurseryBytes)
 
     if (!gc.init(maxbytes, maxNurseryBytes))
         return false;
-
-    const char* size = getenv("JSGC_MARK_STACK_LIMIT");
-    if (size)
-        gc.setMarkStackLimit(atoi(size));
 
     ScopedJSDeletePtr<Zone> atomsZone(new_<Zone>(this));
     if (!atomsZone || !atomsZone->init(true))
@@ -627,6 +624,7 @@ JSRuntime::resetJitStackLimit()
 #else
     jitStackLimit_ = mainThread.nativeStackLimit[StackForUntrustedScript];
 #endif
+    jitStackLimitNoInterrupt_ = jitStackLimit_;
 }
 
 void
@@ -764,6 +762,7 @@ JSRuntime::onOutOfMemory(AllocFunction allocFunc, size_t nbytes, void* reallocPt
                          JSContext* maybecx)
 {
     MOZ_ASSERT_IF(allocFunc != AllocFunction::Realloc, !reallocPtr);
+    MOZ_ASSERT(CurrentThreadCanAccessRuntime(this));
 
     if (isHeapBusy())
         return nullptr;

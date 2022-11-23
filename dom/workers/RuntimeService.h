@@ -43,6 +43,7 @@ class RuntimeService final : public nsIObserver
   {
     nsCString mDomain;
     nsTArray<WorkerPrivate*> mActiveWorkers;
+    nsTArray<WorkerPrivate*> mActiveServiceWorkers;
     nsTArray<WorkerPrivate*> mQueuedWorkers;
     nsClassHashtable<nsCStringHashKey, SharedWorkerInfo> mSharedWorkerInfos;
     uint32_t mChildWorkerCount;
@@ -54,21 +55,13 @@ class RuntimeService final : public nsIObserver
     uint32_t
     ActiveWorkerCount() const
     {
-      return mActiveWorkers.Length() + mChildWorkerCount;
+      return mActiveWorkers.Length() +
+             mActiveServiceWorkers.Length() +
+             mChildWorkerCount;
     }
   };
 
   struct IdleThreadInfo;
-
-  struct MatchSharedWorkerInfo
-  {
-    WorkerPrivate* mWorkerPrivate;
-    SharedWorkerInfo* mSharedWorkerInfo;
-
-    explicit MatchSharedWorkerInfo(WorkerPrivate* aWorkerPrivate)
-    : mWorkerPrivate(aWorkerPrivate), mSharedWorkerInfo(nullptr)
-    { }
-  };
 
   mozilla::Mutex mMutex;
 
@@ -123,6 +116,10 @@ public:
 
   void
   UnregisterWorker(JSContext* aCx, WorkerPrivate* aWorkerPrivate);
+
+  void
+  RemoveSharedWorker(WorkerDomainInfo* aDomainInfo,
+                     WorkerPrivate* aWorkerPrivate);
 
   void
   CancelWorkersForWindow(nsPIDOMWindow* aWindow);
@@ -247,20 +244,8 @@ private:
   void
   Cleanup();
 
-  static PLDHashOperator
-  AddAllTopLevelWorkersToArray(const nsACString& aKey,
-                               WorkerDomainInfo* aData,
-                               void* aUserArg);
-
-  static PLDHashOperator
-  RemoveSharedWorkerFromWindowMap(nsPIDOMWindow* aKey,
-                                  nsAutoPtr<nsTArray<WorkerPrivate*> >& aData,
-                                  void* aUserArg);
-
-  static PLDHashOperator
-  FindSharedWorkerInfo(const nsACString& aKey,
-                       SharedWorkerInfo* aData,
-                       void* aUserArg);
+  void
+  AddAllTopLevelWorkersToArray(nsTArray<WorkerPrivate*>& aWorkers);
 
   void
   GetWorkersForWindow(nsPIDOMWindow* aWindow,
