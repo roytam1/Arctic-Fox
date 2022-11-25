@@ -1519,7 +1519,7 @@ nsDocShell::LoadURI(nsIURI* aURI,
   }
   if (!owner && !inheritOwner && !ownerIsExplicit) {
     // See if there's system or chrome JS code running
-    inheritOwner = nsContentUtils::IsCallerChrome();
+    inheritOwner = nsContentUtils::LegacyIsCallerChromeOrNativeCode();
   }
 
   if (aLoadFlags & LOAD_FLAGS_DISALLOW_INHERIT_OWNER) {
@@ -7799,7 +7799,7 @@ nsDocShell::CreateAboutBlankContentViewer(nsIPrincipal* aPrincipal,
     mTiming->NotifyBeforeUnload();
 
     bool okToUnload;
-    rv = mContentViewer->PermitUnload(false, &okToUnload);
+    rv = mContentViewer->PermitUnload(&okToUnload);
 
     if (NS_SUCCEEDED(rv) && !okToUnload) {
       // The user chose not to unload the page, interrupt the load.
@@ -9754,8 +9754,7 @@ nsDocShell::InternalLoad(nsIURI* aURI,
           // So, the best we can do, is to tear down the new window
           // that was just created!
           //
-          nsCOMPtr<nsPIDOMWindow> domWin = targetDocShell->GetWindow();
-          if (domWin) {
+          if (nsCOMPtr<nsPIDOMWindow> domWin = targetDocShell->GetWindow()) {
             domWin->Close();
           }
         }
@@ -10144,7 +10143,7 @@ nsDocShell::InternalLoad(nsIURI* aURI,
   // protocol handler deals with this for javascript: URLs.
   if (!isJavaScript && aFileName.IsVoid() && mContentViewer) {
     bool okToUnload;
-    rv = mContentViewer->PermitUnload(false, &okToUnload);
+    rv = mContentViewer->PermitUnload(&okToUnload);
 
     if (NS_SUCCEEDED(rv) && !okToUnload) {
       // The user chose not to unload the page, interrupt the
