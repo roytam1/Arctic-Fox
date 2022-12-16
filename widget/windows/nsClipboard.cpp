@@ -88,7 +88,7 @@ nsClipboard::Observe(nsISupports *aSubject, const char *aTopic,
 }
 
 //-------------------------------------------------------------------------
-UINT nsClipboard::GetFormat(const char* aMimeStr)
+UINT nsClipboard::GetFormat(const char* aMimeStr, bool aMapHTMLMime)
 {
   UINT format;
 
@@ -103,7 +103,8 @@ UINT nsClipboard::GetFormat(const char* aMimeStr)
   else if (strcmp(aMimeStr, kFileMime) == 0 ||
            strcmp(aMimeStr, kFilePromiseMime) == 0)
     format = CF_HDROP;
-  else if (strcmp(aMimeStr, kNativeHTMLMime) == 0)
+  else if (strcmp(aMimeStr, kNativeHTMLMime) == 0 ||
+           aMapHTMLMime && strcmp(aMimeStr, kHTMLMime) == 0)
     format = CF_HTML;
   else
     format = ::RegisterClipboardFormatW(NS_ConvertASCIItoUTF16(aMimeStr).get());
@@ -166,7 +167,9 @@ nsresult nsClipboard::SetupNativeDataObject(nsITransferable * aTransferable, IDa
     if ( currentFlavor ) {
       nsXPIDLCString flavorStr;
       currentFlavor->ToString(getter_Copies(flavorStr));
-      UINT format = GetFormat(flavorStr);
+      // When putting data onto the clipboard, we want to maintain kHTMLMime
+      // ("text/html") and not map it to CF_HTML here since this will be done below.
+      UINT format = GetFormat(flavorStr, false);
 
       // Now tell the native IDataObject about both our mime type and 
       // the native data format
