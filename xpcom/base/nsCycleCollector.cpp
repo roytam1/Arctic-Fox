@@ -1256,9 +1256,11 @@ class JSPurpleBuffer;
 
 class nsCycleCollector : public nsIMemoryReporter
 {
+public:
   NS_DECL_ISUPPORTS
   NS_DECL_NSIMEMORYREPORTER
 
+private:
   bool mActivelyCollecting;
   bool mFreeingSnowWhite;
   // mScanInProgress should be false when we're collecting white objects.
@@ -1327,6 +1329,8 @@ public:
                nsICycleCollectorListener* aManualListener,
                bool aPreferShorterSlices = false);
   void Shutdown();
+
+  bool IsIdle() const { return mIncrementalPhase == IdlePhase; }
 
   void SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf,
                            size_t* aObjectSize,
@@ -2833,7 +2837,7 @@ nsCycleCollector::ForgetSkippable(bool aRemoveChildlessNodes,
 
   // If we remove things from the purple buffer during graph building, we may
   // lose track of an object that was mutated during graph building.
-  MOZ_ASSERT(mIncrementalPhase == IdlePhase);
+  MOZ_ASSERT(IsIdle());
 
   if (mJSRuntime) {
     mJSRuntime->PrepareForForgetSkippable();
@@ -3583,7 +3587,7 @@ nsCycleCollector::Collect(ccType aCCType,
     marker.emplace("nsCycleCollector::Collect");
   }
 
-  bool startedIdle = (mIncrementalPhase == IdlePhase);
+  bool startedIdle = IsIdle();
   bool collectedAny = false;
 
   // If the CC started idle, it will call BeginCollection, which
@@ -3651,13 +3655,13 @@ nsCycleCollector::Collect(ccType aCCType,
     // We were in the middle of an incremental CC (using its own listener).
     // Somebody has forced a CC, so after having finished out the current CC,
     // run the CC again using the new listener.
-    MOZ_ASSERT(mIncrementalPhase == IdlePhase);
+    MOZ_ASSERT(IsIdle());
     if (Collect(aCCType, aBudget, aManualListener)) {
       collectedAny = true;
     }
   }
 
-  MOZ_ASSERT_IF(aCCType != SliceCC, mIncrementalPhase == IdlePhase);
+  MOZ_ASSERT_IF(aCCType != SliceCC, IsIdle());
 
   return collectedAny;
 }
@@ -3669,7 +3673,7 @@ nsCycleCollector::Collect(ccType aCCType,
 void
 nsCycleCollector::PrepareForGarbageCollection()
 {
-  if (mIncrementalPhase == IdlePhase) {
+  if (IsIdle()) {
     MOZ_ASSERT(mGraph.IsEmpty(), "Non-empty graph when idle");
     MOZ_ASSERT(!mBuilder, "Non-null builder when idle");
     if (mJSPurpleBuffer) {
@@ -3684,7 +3688,7 @@ nsCycleCollector::PrepareForGarbageCollection()
 void
 nsCycleCollector::FinishAnyCurrentCollection()
 {
-  if (mIncrementalPhase == IdlePhase) {
+  if (IsIdle()) {
     return;
   }
 
@@ -3697,7 +3701,7 @@ nsCycleCollector::FinishAnyCurrentCollection()
   // current CC if we're reentering the CC at some point past
   // graph building. We need to be past the point where the CC will
   // look at JS objects so that it is safe to GC.
-  MOZ_ASSERT(mIncrementalPhase == IdlePhase ||
+  MOZ_ASSERT(IsIdle() ||
              (mActivelyCollecting && mIncrementalPhase != GraphBuildingPhase),
              "Reentered CC during graph building");
 }
@@ -3742,7 +3746,7 @@ nsCycleCollector::BeginCollection(ccType aCCType,
                                   nsICycleCollectorListener* aManualListener)
 {
   TimeLog timeLog;
-  MOZ_ASSERT(mIncrementalPhase == IdlePhase);
+  MOZ_ASSERT(IsIdle());
 
   mCollectionStart = TimeStamp::Now();
 
@@ -3834,7 +3838,7 @@ nsCycleCollector::Shutdown()
   // Always delete snow white objects.
   FreeSnowWhite(true);
 
-#ifndef DEBUG
+#ifndef NS_FREE_PERMANENT_DATA
   if (PR_GetEnv("MOZ_CC_RUN_DURING_SHUTDOWN"))
 #endif
   {
@@ -3845,7 +3849,7 @@ nsCycleCollector::Shutdown()
 void
 nsCycleCollector::RemoveObjectFromGraph(void* aObj)
 {
-  if (mIncrementalPhase == IdlePhase) {
+  if (IsIdle()) {
     return;
   }
 

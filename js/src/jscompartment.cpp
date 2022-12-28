@@ -167,11 +167,12 @@ JSRuntime::createJitRuntime(JSContext* cx)
     JitRuntime::AutoMutateBackedges amb(jrt);
     jitRuntime_ = jrt;
 
+    AutoEnterOOMUnsafeRegion noOOM;
     if (!jitRuntime_->initialize(cx)) {
         // Handling OOM here is complicated: if we delete jitRuntime_ now, we
         // will destroy the ExecutableAllocator, even though there may still be
         // JitCode instances holding references to ExecutablePools.
-        CrashAtUnhandlableOOM("OOM in createJitRuntime");
+        noOOM.crash("OOM in createJitRuntime");
     }
 
     return jitRuntime_;
@@ -1139,25 +1140,29 @@ JSCompartment::addSizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf,
 void
 JSCompartment::reportTelemetry()
 {
-    // Only report telemetry for web content, not add-ons or chrome JS.
-    if (addonId || isSystem_)
+    // Only report telemetry for web content and add-ons, not chrome JS.
+    if (isSystem_)
         return;
 
     // Hazard analysis can't tell that the telemetry callbacks don't GC.
     JS::AutoSuppressGCAnalysis nogc;
 
+    int id = addonId
+             ? JS_TELEMETRY_DEPRECATED_LANGUAGE_EXTENSIONS_IN_ADDONS
+             : JS_TELEMETRY_DEPRECATED_LANGUAGE_EXTENSIONS_IN_CONTENT;
+
     // Call back into Firefox's Telemetry reporter.
     for (size_t i = 0; i < DeprecatedLanguageExtensionCount; i++) {
         if (sawDeprecatedLanguageExtension[i])
-            runtime_->addTelemetry(JS_TELEMETRY_DEPRECATED_LANGUAGE_EXTENSIONS_IN_CONTENT, i);
+            runtime_->addTelemetry(id, i);
     }
 }
 
 void
 JSCompartment::addTelemetry(const char* filename, DeprecatedLanguageExtension e)
 {
-    // Only report telemetry for web content, not add-ons or chrome JS.
-    if (addonId || isSystem_ || !filename || strncmp(filename, "http", 4) != 0)
+    // Only report telemetry for web content and add-ons, not chrome JS.
+    if (isSystem_ || (!addonId && (!filename || strncmp(filename, "http", 4) != 0)))
         return;
 
     sawDeprecatedLanguageExtension[e] = true;
