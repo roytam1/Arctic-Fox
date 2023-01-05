@@ -1121,11 +1121,6 @@ static bool IsScriptedAutoplayEnabled()
   return Preferences::GetBool("media.autoplay.allowscripted");
 }
 
-static bool UseAudioChannelService()
-{
-  return Preferences::GetBool("media.useAudioChannelService");
-}
-
 static bool UseAudioChannelAPI()
 {
   return Preferences::GetBool("media.useAudioChannelAPI");
@@ -2449,10 +2444,6 @@ bool HTMLMediaElement::ParseAttribute(int32_t aNamespaceID,
 
 bool HTMLMediaElement::CheckAudioChannelPermissions(const nsAString& aString)
 {
-  if (!UseAudioChannelService()) {
-    return true;
-  }
-
   // Only normal channel doesn't need permission.
   if (aString.EqualsASCII("normal")) {
     return true;
@@ -4635,10 +4626,6 @@ ImageContainer* HTMLMediaElement::GetImageContainer()
 
 nsresult HTMLMediaElement::UpdateChannelMuteState(float aVolume, bool aMuted)
 {
-  if (!UseAudioChannelService()) {
-    return NS_OK;
-  }
-
   if (mAudioChannelVolume != aVolume) {
     mAudioChannelVolume = aVolume;
     SetVolumeInternal();
@@ -4683,10 +4670,6 @@ HTMLMediaElement::MaybeCreateAudioChannelAgent()
 void
 HTMLMediaElement::UpdateAudioChannelPlayingState()
 {
-  if (!UseAudioChannelService()) {
-    return;
-  }
-
   bool playingThroughTheAudioChannel =
      (!mPaused &&
       !Muted() &&
@@ -4712,11 +4695,6 @@ HTMLMediaElement::UpdateAudioChannelPlayingState()
 void
 HTMLMediaElement::NotifyAudioChannelAgent(bool aPlaying)
 {
-  // Don't do anything if this element doesn't have any audio tracks.
-  if (!HasAudio()) {
-    return;
-  }
-
   // Immediately check if this should go to the MSG instead of the normal
   // media playback route.
   WindowAudioCaptureChanged();
@@ -4727,9 +4705,13 @@ HTMLMediaElement::NotifyAudioChannelAgent(bool aPlaying)
   AutoNoJSAPI nojsapi;
 
   if (aPlaying) {
+    // Don't notify playback if this element doesn't have any audio tracks.
+    uint32_t notify = HasAudio() ? nsIAudioChannelAgent::AUDIO_AGENT_NOTIFY :
+                                   nsIAudioChannelAgent::AUDIO_AGENT_DONT_NOTIFY;
+
     float volume = 0.0;
     bool muted = true;
-    mAudioChannelAgent->NotifyStartedPlaying(&volume, &muted);
+    mAudioChannelAgent->NotifyStartedPlaying(notify, &volume, &muted);
     WindowVolumeChanged(volume, muted);
   } else {
     mAudioChannelAgent->NotifyStoppedPlaying();
