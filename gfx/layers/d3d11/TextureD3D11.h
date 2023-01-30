@@ -111,8 +111,6 @@ public:
 
   virtual bool IsLocked() const override { return mIsLocked; }
 
-  virtual bool ImplementsLocking() const override { return true; }
-
   virtual bool HasInternalBuffer() const override { return false; }
 
   virtual bool ToSurfaceDescriptor(SurfaceDescriptor& aOutDescriptor) override;
