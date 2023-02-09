@@ -213,9 +213,9 @@ bool nsFrame::GetShowEventTargetFrameBorder()
  * Note: the log module is created during library initialization which
  * means that you cannot perform logging before then.
  */
-static PRLogModuleInfo* gLogModule;
+mozilla::LazyLogModule nsFrame::sFrameLogModule("frame");
 
-static PRLogModuleInfo* gStyleVerifyTreeLogModuleInfo;
+static mozilla::LazyLogModule sStyleVerifyTreeLogModuleInfo("styleverifytree");
 
 static uint32_t gStyleVerifyTreeEnable = 0x55;
 
@@ -223,10 +223,7 @@ bool
 nsFrame::GetVerifyStyleTreeEnable()
 {
   if (gStyleVerifyTreeEnable == 0x55) {
-    if (nullptr == gStyleVerifyTreeLogModuleInfo) {
-      gStyleVerifyTreeLogModuleInfo = PR_NewLogModule("styleverifytree");
-      gStyleVerifyTreeEnable = 0 != gStyleVerifyTreeLogModuleInfo->level;
-    }
+      gStyleVerifyTreeEnable = 0 != (int)((mozilla::LogModule*)sStyleVerifyTreeLogModuleInfo)->Level();
   }
   return gStyleVerifyTreeEnable;
 }
@@ -235,15 +232,6 @@ void
 nsFrame::SetVerifyStyleTreeEnable(bool aEnabled)
 {
   gStyleVerifyTreeEnable = aEnabled;
-}
-
-PRLogModuleInfo*
-nsFrame::GetLogModuleInfo()
-{
-  if (nullptr == gLogModule) {
-    gLogModule = PR_NewLogModule("frame");
-  }
-  return gLogModule;
 }
 
 #endif
@@ -2520,13 +2508,9 @@ nsIFrame::BuildDisplayListForChild(nsDisplayListBuilder*   aBuilder,
       // return early.
 
       if (aBuilder->IsBuildingLayerEventRegions()) {
-        MOZ_ASSERT(buildingForChild.GetPrevAnimatedGeometryRoot() ==
-                   aBuilder->FindAnimatedGeometryRootFor(child->GetParent()));
-
         // If this frame has a different animated geometry root than its parent,
         // make sure we accumulate event regions for its layer.
-        nsIFrame *animatedGeometryRoot = aBuilder->FindAnimatedGeometryRootFor(child);
-        if (animatedGeometryRoot != buildingForChild.GetPrevAnimatedGeometryRoot()) {
+        if (buildingForChild.IsAnimatedGeometryRoot()) {
           nsDisplayLayerEventRegions* eventRegions =
             new (aBuilder) nsDisplayLayerEventRegions(aBuilder, child);
           eventRegions->AddFrame(aBuilder, child);
@@ -9141,7 +9125,7 @@ GetTagName(nsFrame* aFrame, nsIContent* aContent, int aResultSize,
 void
 nsFrame::Trace(const char* aMethod, bool aEnter)
 {
-  if (NS_FRAME_LOG_TEST(GetLogModuleInfo(), NS_FRAME_TRACE_CALLS)) {
+  if (NS_FRAME_LOG_TEST(sFrameLogModule, NS_FRAME_TRACE_CALLS)) {
     char tagbuf[40];
     GetTagName(this, mContent, sizeof(tagbuf), tagbuf);
     PR_LogPrint("%s: %s %s", tagbuf, aEnter ? "enter" : "exit", aMethod);
@@ -9151,7 +9135,7 @@ nsFrame::Trace(const char* aMethod, bool aEnter)
 void
 nsFrame::Trace(const char* aMethod, bool aEnter, nsReflowStatus aStatus)
 {
-  if (NS_FRAME_LOG_TEST(GetLogModuleInfo(), NS_FRAME_TRACE_CALLS)) {
+  if (NS_FRAME_LOG_TEST(sFrameLogModule, NS_FRAME_TRACE_CALLS)) {
     char tagbuf[40];
     GetTagName(this, mContent, sizeof(tagbuf), tagbuf);
     PR_LogPrint("%s: %s %s, status=%scomplete%s",
@@ -9164,7 +9148,7 @@ nsFrame::Trace(const char* aMethod, bool aEnter, nsReflowStatus aStatus)
 void
 nsFrame::TraceMsg(const char* aFormatString, ...)
 {
-  if (NS_FRAME_LOG_TEST(GetLogModuleInfo(), NS_FRAME_TRACE_CALLS)) {
+  if (NS_FRAME_LOG_TEST(sFrameLogModule, NS_FRAME_TRACE_CALLS)) {
     // Format arguments into a buffer
     char argbuf[200];
     va_list ap;
