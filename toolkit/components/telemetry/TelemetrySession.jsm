@@ -22,6 +22,7 @@ Cu.import("resource://gre/modules/Task.jsm");
 Cu.import("resource://gre/modules/Timer.jsm");
 Cu.import("resource://gre/modules/TelemetrySend.jsm", this);
 Cu.import("resource://gre/modules/TelemetryUtils.jsm", this);
+Cu.import("resource://gre/modules/AppConstants.jsm");
 
 const Utils = TelemetryUtils;
 
@@ -44,7 +45,7 @@ const REASON_SHUTDOWN = "shutdown";
 const ENVIRONMENT_CHANGE_LISTENER = "TelemetrySession::onEnvironmentChange";
 
 const MS_IN_ONE_HOUR  = 60 * 60 * 1000;
-const MIN_SUBSESSION_LENGTH_MS = 10 * 60 * 1000;
+const MIN_SUBSESSION_LENGTH_MS = Preferences.get("toolkit.telemetry.minSubsessionLength", 10 * 60) * 1000;
 
 // This is the HG changeset of the Histogram.json file, used to associate
 // submitted ping data with its histogram definition (bug 832007)
@@ -75,18 +76,16 @@ const IS_UNIFIED_TELEMETRY = Preferences.get(PREF_UNIFIED, false);
 // Maximum number of content payloads that we are willing to store.
 const MAX_NUM_CONTENT_PAYLOADS = 10;
 
-// Do not gather data more than once a minute
-const TELEMETRY_INTERVAL = 60000;
+// Do not gather data more than once a minute (ms)
+const TELEMETRY_INTERVAL = 60 * 1000;
 // Delay before intializing telemetry (ms)
-const TELEMETRY_DELAY = 60000;
+const TELEMETRY_DELAY = Preferences.get("toolkit.telemetry.initDelay", 60) * 1000;
 // Delay before initializing telemetry if we're testing (ms)
 const TELEMETRY_TEST_DELAY = 100;
 // Execute a scheduler tick every 5 minutes.
-const SCHEDULER_TICK_INTERVAL_MS = 5 * 60 * 1000;
+const SCHEDULER_TICK_INTERVAL_MS = Preferences.get("toolkit.telemetry.scheduler.tickInterval", 5 * 60) * 1000;
 // When user is idle, execute a scheduler tick every 60 minutes.
-const SCHEDULER_TICK_IDLE_INTERVAL_MS = 60 * 60 * 1000;
-// The maximum number of times a scheduled operation can fail.
-const SCHEDULER_RETRY_ATTEMPTS = 3;
+const SCHEDULER_TICK_IDLE_INTERVAL_MS = Preferences.get("toolkit.telemetry.scheduler.idleTickInterval", 60 * 60) * 1000;
 
 // The tolerance we have when checking if it's midnight (15 minutes).
 const SCHEDULER_MIDNIGHT_TOLERANCE_MS = 15 * 60 * 1000;
@@ -98,7 +97,7 @@ const SCHEDULER_COALESCE_THRESHOLD_MS = 2 * 60 * 1000;
 // Seconds of idle time before pinging.
 // On idle-daily a gather-telemetry notification is fired, during it probes can
 // start asynchronous tasks to gather data.
-const IDLE_TIMEOUT_SECONDS = 5 * 60;
+const IDLE_TIMEOUT_SECONDS = Preferences.get("toolkit.telemetry.idleTimeout", 5 * 60);
 
 // The frequency at which we persist session data to the disk to prevent data loss
 // in case of aborted sessions (currently 5 minutes).
@@ -368,9 +367,6 @@ var TelemetryScheduler = {
 
   _log: null,
 
-  // The number of times a daily ping fails.
-  _dailyPingRetryAttempts: 0,
-
   // The timer which drives the scheduler.
   _schedulerTimer: null,
   // The interval used by the scheduler timer.
@@ -528,42 +524,26 @@ var TelemetryScheduler = {
     }
     this._lastTickTime = now;
 
-    // Check if aborted-session ping is due.
-    let isAbortedPingDue =
-      (now - this._lastSessionCheckpointTime) >= ABORTED_SESSION_UPDATE_INTERVAL_MS;
-    // Check if daily ping is due.
-    let shouldSendDaily = this._isDailyPingDue(nowDate);
-    // We can combine the daily-ping and the aborted-session ping in the following cases:
-    // - If both the daily and the aborted session pings are due (a laptop that wakes
-    //   up after a few hours).
-    // - If either the daily ping is due and the other one would follow up shortly
-    //   (whithin the coalescence threshold).
-    let nextSessionCheckpoint =
-      this._lastSessionCheckpointTime + ABORTED_SESSION_UPDATE_INTERVAL_MS;
-    let combineActions = (shouldSendDaily && isAbortedPingDue) || (shouldSendDaily &&
-                          Utils.areTimesClose(now, nextSessionCheckpoint,
-                                                       SCHEDULER_COALESCE_THRESHOLD_MS));
+    // Check if the daily ping is due.
+    const shouldSendDaily = this._isDailyPingDue(nowDate);
 
-    if (combineActions) {
-      this._log.trace("_schedulerTickLogic - Combining pings.");
-      // Send the daily ping and also save its payload as an aborted-session ping.
-      return Impl._sendDailyPing(true).then(() => this._dailyPingSucceeded(now),
-                                            () => this._dailyPingFailed(now));
-    } else if (shouldSendDaily) {
+    if (shouldSendDaily) {
       this._log.trace("_schedulerTickLogic - Daily ping due.");
-      return Impl._sendDailyPing().then(() => this._dailyPingSucceeded(now),
-                                        () => this._dailyPingFailed(now));
-    } else if (isAbortedPingDue) {
+      this._lastDailyPingTime = now;
+      return Impl._sendDailyPing();
+    }
+
+    // Check if the aborted-session ping is due. If a daily ping was saved above, it was
+    // already duplicated as an aborted-session ping.
+    const isAbortedPingDue =
+      (now - this._lastSessionCheckpointTime) >= ABORTED_SESSION_UPDATE_INTERVAL_MS;
+    if (isAbortedPingDue) {
       this._log.trace("_schedulerTickLogic - Aborted session ping due.");
       return this._saveAbortedPing(now);
     }
 
     // No ping is due.
     this._log.trace("_schedulerTickLogic - No ping due.");
-    // It's possible, because of sleeps, that we're no longer within midnight tolerance for
-    // daily pings. Because of that, daily retry attempts would not be 0 on the next midnight.
-    // Reset that count on do-nothing ticks.
-    this._dailyPingRetryAttempts = 0;
     return Promise.resolve();
   },
 
@@ -594,33 +574,6 @@ var TelemetryScheduler = {
     }
 
     this._rescheduleTimeout();
-  },
-
-  /**
-   * Called when a scheduled operation successfully completes (ping sent or saved).
-   * @param {Number} now The current time, in milliseconds.
-   */
-  _dailyPingSucceeded: function(now) {
-    this._log.trace("_dailyPingSucceeded");
-    this._lastDailyPingTime = now;
-    this._dailyPingRetryAttempts = 0;
-  },
-
-  /**
-   * Called when a scheduled operation fails (ping sent or saved).
-   * @param {Number} now The current time, in milliseconds.
-   */
-  _dailyPingFailed: function(now) {
-    this._log.error("_dailyPingFailed");
-    this._dailyPingRetryAttempts++;
-
-    // If we reach the maximum number of retry attempts for a daily ping, log the error
-    // and skip this daily ping.
-    if (this._dailyPingRetryAttempts >= SCHEDULER_RETRY_ATTEMPTS) {
-      this._log.error("_pingFailed - The daily ping failed too many times. Skipping it.");
-      this._dailyPingRetryAttempts = 0;
-      this._lastDailyPingTime = now;
-    }
   },
 
   /**
@@ -1336,12 +1289,13 @@ var Impl = {
 
   getSessionPayload: function getSessionPayload(reason, clearSubsession) {
     this._log.trace("getSessionPayload - reason: " + reason + ", clearSubsession: " + clearSubsession);
-#if defined(MOZ_WIDGET_GONK) || defined(MOZ_WIDGET_ANDROID)
-    clearSubsession = false;
-    const isSubsession = false;
-#else
-    const isSubsession = !this._isClassicReason(reason);
-#endif
+
+    const isMobile = ["gonk", "android"].indexOf(AppConstants.platform) !== -1;
+    const isSubsession = isMobile ? false : !this._isClassicReason(reason);
+
+    if (isMobile) {
+      clearSubsession = false;
+    }
 
     let measurements =
       this.getSimpleMeasurements(reason == REASON_SAVED_SESSION, isSubsession, clearSubsession);
@@ -1446,9 +1400,9 @@ var Impl = {
                                       () => this._getState());
 
     Services.obs.addObserver(this, "sessionstore-windows-restored", false);
-#ifdef MOZ_WIDGET_ANDROID
-    Services.obs.addObserver(this, "application-background", false);
-#endif
+    if (AppConstants.platform === "android") {
+      Services.obs.addObserver(this, "application-background", false);
+    }
     Services.obs.addObserver(this, "xul-window-visible", false);
     this._hasWindowRestoredObserver = true;
     this._hasXulWindowVisibleObserver = true;
@@ -1657,9 +1611,9 @@ var Impl = {
       Services.obs.removeObserver(this, "xul-window-visible");
       this._hasXulWindowVisibleObserver = false;
     }
-#ifdef MOZ_WIDGET_ANDROID
-    Services.obs.removeObserver(this, "application-background", false);
-#endif
+    if (AppConstants.platform === "android") {
+      Services.obs.removeObserver(this, "application-background", false);
+    }
   },
 
   getPayload: function getPayload(reason, clearSubsession) {
@@ -1760,23 +1714,25 @@ var Impl = {
       }).bind(this), Ci.nsIThread.DISPATCH_NORMAL);
       break;
 
-#ifdef MOZ_WIDGET_ANDROID
-    // On Android, we can get killed without warning once we are in the background,
-    // but we may also submit data and/or come back into the foreground without getting
-    // killed. To deal with this, we save the current session data to file when we are
-    // put into the background. This handles the following post-backgrounding scenarios:
-    // 1) We are killed immediately. In this case the current session data (which we
-    //    save to a file) will be loaded and submitted on a future run.
-    // 2) We submit the data while in the background, and then are killed. In this case
-    //    the file that we saved will be deleted by the usual process in
-    //    finishPingRequest after it is submitted.
-    // 3) We submit the data, and then come back into the foreground. Same as case (2).
-    // 4) We do not submit the data, but come back into the foreground. In this case
-    //    we have the option of either deleting the file that we saved (since we will either
-    //    send the live data while in the foreground, or create the file again on the next
-    //    backgrounding), or not (in which case we will delete it on submit, or overwrite
-    //    it on the next backgrounding). Not deleting it is faster, so that's what we do.
     case "application-background":
+      if (AppConstants.platform !== "android") {
+        break;
+      }
+      // On Android, we can get killed without warning once we are in the background,
+      // but we may also submit data and/or come back into the foreground without getting
+      // killed. To deal with this, we save the current session data to file when we are
+      // put into the background. This handles the following post-backgrounding scenarios:
+      // 1) We are killed immediately. In this case the current session data (which we
+      //    save to a file) will be loaded and submitted on a future run.
+      // 2) We submit the data while in the background, and then are killed. In this case
+      //    the file that we saved will be deleted by the usual process in
+      //    finishPingRequest after it is submitted.
+      // 3) We submit the data, and then come back into the foreground. Same as case (2).
+      // 4) We do not submit the data, but come back into the foreground. In this case
+      //    we have the option of either deleting the file that we saved (since we will either
+      //    send the live data while in the foreground, or create the file again on the next
+      //    backgrounding), or not (in which case we will delete it on submit, or overwrite
+      //    it on the next backgrounding). Not deleting it is faster, so that's what we do.
       if (Telemetry.isOfficialTelemetry) {
         let payload = this.getSessionPayload(REASON_SAVED_SESSION, false);
         let options = {
@@ -1787,7 +1743,6 @@ var Impl = {
         TelemetryController.addPendingPing(getPingType(payload), payload, options);
       }
       break;
-#endif
     }
   },
 
@@ -1852,11 +1807,9 @@ var Impl = {
 
   /**
    * Gather and send a daily ping.
-   * @param {Boolean} [saveAsAborted=false] Also saves the payload as an aborted-session
-   *                  ping.
    * @return {Promise} Resolved when the ping is sent.
    */
-  _sendDailyPing: function(saveAsAborted = false) {
+  _sendDailyPing: function() {
     this._log.trace("_sendDailyPing");
     let payload = this.getSessionPayload(REASON_DAILY, true);
 
@@ -1866,11 +1819,14 @@ var Impl = {
     };
 
     let promise = TelemetryController.submitExternalPing(getPingType(payload), payload, options);
-    // If required, also save the payload as an aborted session.
-    if (saveAsAborted && IS_UNIFIED_TELEMETRY) {
-      let abortedPromise = this._saveAbortedSessionPing(payload);
-      promise = promise.then(() => abortedPromise);
+
+    // Also save the payload as an aborted session. If we delay this, aborted-session can
+    // lag behind for the profileSubsessionCounter and other state, complicating analysis.
+    if (IS_UNIFIED_TELEMETRY) {
+      this._saveAbortedSessionPing(payload)
+          .catch(e => this._log.error("_sendDailyPing - Failed to save the aborted session ping", e));
     }
+
     return promise;
   },
 

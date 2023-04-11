@@ -40,7 +40,7 @@ Structure::
           loadPath: <string>, // where the engine line is located; missing if no default
           submissionURL: <string> // missing if no default or for user-installed engines
         },
-        e10sEnabled: <bool>, // false on failure
+        e10sEnabled: <bool>, // whether e10s is on, i.e. browser tabs open by default in a different process
         telemetryEnabled: <bool>, // false on failure
         isInOptoutSample: <bool>, // whether this client is part of the opt-out sample
         locale: <string>, // e.g. "it", null on failure
@@ -272,3 +272,8 @@ The object contains:
   For privacy, we don't record this for user-installed engines.
 
 ``loadPath`` and ``submissionURL`` are not present if ``name`` is ``NONE``.
+
+searchCohort
+~~~~~~~~~~~~
+
+If the user has been enrolled into a search default change experiment, this contains the string identifying the experiment the user is taking part in. Most user profiles will never be part of any search default change experiment, and will not send this value.
