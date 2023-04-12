@@ -16,6 +16,10 @@ Cu.import("resource://gre/modules/TelemetryArchive.jsm");
 Cu.import("resource://gre/modules/TelemetryUtils.jsm");
 Cu.import("resource://gre/modules/TelemetryLog.jsm");
 Cu.import("resource://gre/modules/Preferences.jsm");
+Cu.import("resource://gre/modules/XPCOMUtils.jsm");
+
+XPCOMUtils.defineLazyModuleGetter(this, "AppConstants",
+                                  "resource://gre/modules/AppConstants.jsm");
 
 const Telemetry = Services.telemetry;
 const bundle = Services.strings.createBundle(
@@ -228,8 +232,17 @@ var Settings = {
     let elements = document.getElementsByClassName("change-data-choices-link");
     for (let el of elements) {
       el.addEventListener("click", function() {
-        let mainWindow = getMainWindowWithPreferencesPane();
-        mainWindow.openAdvancedPreferences("dataChoicesTab");
+        if (AppConstants.platform == "android") {
+          Cu.import("resource://gre/modules/Messaging.jsm");
+          Messaging.sendRequest({
+            type: "Settings:Show",
+            resource: "preferences_vendor",
+          });
+        } else {
+          // Show the data choices preferences on desktop.
+          let mainWindow = getMainWindowWithPreferencesPane();
+          mainWindow.openAdvancedPreferences("dataChoicesTab");
+        }
       }, false);
     }
   },
@@ -281,10 +294,13 @@ var PingPicker = {
       this._updateArchivedPingData()
     }, false);
 
-    document.getElementById("next-ping")
+    document.getElementById("newer-ping")
             .addEventListener("click", () => this._movePingIndex(-1), false);
-    document.getElementById("previous-ping")
+    document.getElementById("older-ping")
             .addEventListener("click", () => this._movePingIndex(1), false);
+
+    document.getElementById("choose-payload")
+            .addEventListener("change", () => displayPingData(gPingData), false);
   },
 
   onPingSourceChanged: function() {
@@ -309,13 +325,13 @@ var PingPicker = {
   _updateCurrentPingData: function() {
     const subsession = document.getElementById("show-subsession-data").checked;
     const ping = TelemetryController.getCurrentPingData(subsession);
-    displayPingData(ping);
+    displayPingData(ping, true);
   },
 
   _updateArchivedPingData: function() {
     let id = this._getSelectedPingId();
     TelemetryArchive.promiseArchivedPingById(id)
-                    .then((ping) => displayPingData(ping));
+                    .then((ping) => displayPingData(ping, true));
   },
 
   _updateArchivedPingList: function() {
@@ -488,9 +504,14 @@ var EnvironmentData = {
    * Renders the environment data
    */
   render: function(ping) {
-    setHasData("environment-data-section", true);
     let dataDiv = document.getElementById("environment-data");
     removeAllChildNodes(dataDiv);
+    const hasData = !!ping.environment;
+    setHasData("environment-data-section", hasData);
+    if (!hasData) {
+      return;
+    }
+
     let data = sectionalizeObject(ping.environment);
 
     for (let [section, sectionData] of data) {
@@ -536,11 +557,12 @@ var TelLog = {
    */
   render: function(aPing) {
     let entries = aPing.payload.log;
-
-    if(entries.length == 0) {
-        return;
+    const hasData = entries && entries.length > 0;
+    setHasData("telemetry-log-section", hasData);
+    if (!hasData) {
+      return;
     }
-    setHasData("telemetry-log-section", true);
+
     let table = document.createElement("table");
 
     let caption = document.createElement("caption");
@@ -604,17 +626,23 @@ var SlowSQL = {
     // We want to show the actual ping data for archived pings,
     // so skip this there.
     let debugSlowSql = PingPicker.viewCurrentPingData && Preferences.get(PREF_DEBUG_SLOW_SQL, false);
+    let slowSql = debugSlowSql ? Telemetry.debugSlowSQL : aPing.payload.slowSQL;
+    if (!slowSql) {
+      setHasData("slow-sql-section", false);
+      return;
+    }
+
     let {mainThread, otherThreads} =
       debugSlowSql ? Telemetry.debugSlowSQL : aPing.payload.slowSQL;
 
     let mainThreadCount = Object.keys(mainThread).length;
     let otherThreadCount = Object.keys(otherThreads).length;
     if (mainThreadCount == 0 && otherThreadCount == 0) {
+      setHasData("slow-sql-section", false);
       return;
     }
 
     setHasData("slow-sql-section", true);
-
     if (debugSlowSql) {
       document.getElementById("sql-warning").classList.remove("hidden");
     }
@@ -785,11 +813,13 @@ var StackRenderer = {
   }
 };
 
-function SymbolicationRequest(aPrefix, aRenderHeader, aMemoryMap, aStacks) {
+function SymbolicationRequest(aPrefix, aRenderHeader,
+                              aMemoryMap, aStacks, aDurations = null) {
   this.prefix = aPrefix;
   this.renderHeader = aRenderHeader;
   this.memoryMap = aMemoryMap;
   this.stacks = aStacks;
+  this.durations = aDurations;
 }
 /**
  * A callback for onreadystatechange. It replaces the numeric stack with
@@ -823,7 +853,7 @@ function SymbolicationRequest_handleSymbolResponse() {
 
   for (let i = 0; i < jsonResponse.length; ++i) {
     let stack = jsonResponse[i];
-    this.renderHeader(i);
+    this.renderHeader(i, this.durations);
 
     for (let symbol of stack) {
       div.appendChild(document.createTextNode(symbol));
@@ -862,16 +892,21 @@ var ChromeHangs = {
    */
   render: function ChromeHangs_render(aPing) {
     let hangs = aPing.payload.chromeHangs;
+    setHasData("chrome-hangs-section", !!hangs);
+    if (!hangs) {
+      return;
+    }
+
     let stacks = hangs.stacks;
     let memoryMap = hangs.memoryMap;
+    let durations = hangs.durations;
 
     StackRenderer.renderStacks("chrome-hangs", stacks, memoryMap,
-			       (index) => this.renderHangHeader(aPing, index));
+                               (index) => this.renderHangHeader(index, durations));
   },
 
-  renderHangHeader: function ChromeHangs_renderHangHeader(aPing, aIndex) {
-    let durations = aPing.payload.chromeHangs.durations;
-    StackRenderer.renderHeader("chrome-hangs", [aIndex + 1, durations[aIndex]]);
+  renderHangHeader: function ChromeHangs_renderHangHeader(aIndex, aDurations) {
+    StackRenderer.renderHeader("chrome-hangs", [aIndex + 1, aDurations[aIndex]]);
   }
 };
 
@@ -885,14 +920,14 @@ var ThreadHangStats = {
     removeAllChildNodes(div);
 
     let stats = aPing.payload.threadHangStats;
-    if (stats) {
-      stats.forEach((thread) => {
-        div.appendChild(this.renderThread(thread));
-      });
-      if (stats.length) {
-        setHasData("thread-hang-stats-section", true);
-      }
+    setHasData("thread-hang-stats-section", stats && (stats.length > 0));
+    if (!stats) {
+      return;
     }
+
+    stats.forEach((thread) => {
+      div.appendChild(this.renderThread(thread));
+    });
   },
 
   /**
@@ -1275,7 +1310,7 @@ var AddonDetails = {
     let addonSection = document.getElementById("addon-details");
     removeAllChildNodes(addonSection);
     let addonDetails = aPing.payload.addonDetails;
-    const hasData = Object.keys(addonDetails).length > 0;
+    const hasData = addonDetails && Object.keys(addonDetails).length > 0;
     setHasData("addon-details-section", hasData);
     if (!hasData) {
       return;
@@ -1358,7 +1393,9 @@ function setupListeners() {
       let hangs = gPingData.payload.chromeHangs;
       let req = new SymbolicationRequest("chrome-hangs",
                                          ChromeHangs.renderHangHeader,
-                                         hangs.memoryMap, hangs.stacks);
+                                         hangs.memoryMap,
+                                         hangs.stacks,
+                                         hangs.durations);
       req.fetchSymbols();
   }, false);
 
@@ -1437,6 +1474,11 @@ var LateWritesSingleton = {
   },
 
   renderLateWrites: function LateWritesSingleton_renderLateWrites(lateWrites) {
+    setHasData("late-writes-section", !!lateWrites);
+    if (!lateWrites) {
+      return;
+    }
+
     let stacks = lateWrites.stacks;
     let memoryMap = lateWrites.memoryMap;
     StackRenderer.renderStacks('late-writes', stacks, memoryMap,
@@ -1489,11 +1531,48 @@ function sortStartupMilestones(aSimpleMeasurements) {
   return result;
 }
 
-function displayPingData(ping) {
+function renderPayloadList(ping) {
+  // Rebuild the payload select with options:
+  //   Parent Payload (selected)
+  //   Child Payload 1..ping.payload.childPayloads.length
+  let listEl = document.getElementById("choose-payload");
+  removeAllChildNodes(listEl);
+
+  let option = document.createElement("option");
+  let text = bundle.GetStringFromName("parentPayload");
+  let content = document.createTextNode(text);
+  let payloadIndex = 0;
+  option.appendChild(content);
+  option.setAttribute("value", payloadIndex++);
+  option.selected = true;
+  listEl.appendChild(option);
+
+  if (!ping.payload.childPayloads) {
+    listEl.disabled = true;
+    return
+  }
+  listEl.disabled = false;
+
+  for (; payloadIndex <= ping.payload.childPayloads.length; ++payloadIndex) {
+    option = document.createElement("option");
+    text = bundle.formatStringFromName("childPayload", [payloadIndex], 1);
+    content = document.createTextNode(text);
+    option.appendChild(content);
+    option.setAttribute("value", payloadIndex);
+    listEl.appendChild(option);
+  }
+}
+
+function displayPingData(ping, updatePayloadList = false) {
   gPingData = ping;
 
   const keysHeader = bundle.GetStringFromName("keysHeader");
   const valuesHeader = bundle.GetStringFromName("valuesHeader");
+
+  // Update the payload list
+  if (updatePayloadList) {
+    renderPayloadList(ping);
+  }
 
   // Show general data.
   GeneralData.render(ping);
@@ -1516,11 +1595,20 @@ function displayPingData(ping) {
   // Render Addon details.
   AddonDetails.render(ping);
 
-  // Show simple measurements
+  // Select payload to render
+  let payloadSelect = document.getElementById("choose-payload");
+  let payloadOption = payloadSelect.selectedOptions.item(0);
+  let payloadIndex = payloadOption.getAttribute("value");
+
   let payload = ping.payload;
+  if (payloadIndex > 0) {
+    payload = ping.payload.childPayloads[payloadIndex - 1];
+  }
+
+  // Show simple measurements
   let simpleMeasurements = sortStartupMilestones(payload.simpleMeasurements);
   let hasData = Object.keys(simpleMeasurements).length > 0;
-  setHasData("simple-measurements-section", true);
+  setHasData("simple-measurements-section", hasData);
   let simpleSection = document.getElementById("simple-measurements");
   removeAllChildNodes(simpleSection);
 
@@ -1532,13 +1620,13 @@ function displayPingData(ping) {
   LateWritesSingleton.renderLateWrites(payload.lateWrites);
 
   // Show basic system info gathered
-  hasData = Object.keys(payload.info).length > 0;
+  hasData = Object.keys(ping.payload.info).length > 0;
   setHasData("system-info-section", hasData);
   let infoSection = document.getElementById("system-info");
   removeAllChildNodes(infoSection);
 
   if (hasData) {
-    infoSection.appendChild(KeyValueTable.render(payload.info,
+    infoSection.appendChild(KeyValueTable.render(ping.payload.info,
                                                  keysHeader, valuesHeader));
   }
 
@@ -1584,16 +1672,16 @@ function displayPingData(ping) {
 
   let addonHistogramsRendered = false;
   let addonData = payload.addonHistograms;
-  for (let [addon, histograms] of Iterator(addonData)) {
-    for (let [name, hgram] of Iterator(histograms)) {
-      addonHistogramsRendered = true;
-      Histogram.render(addonDiv, addon + ": " + name, hgram, {unpacked: true});
+  if (addonData) {
+    for (let [addon, histograms] of Iterator(addonData)) {
+      for (let [name, hgram] of Iterator(histograms)) {
+        addonHistogramsRendered = true;
+        Histogram.render(addonDiv, addon + ": " + name, hgram, {unpacked: true});
+      }
     }
   }
 
-  if (addonHistogramsRendered) {
-   setHasData("addon-histograms-section", true);
-  }
+  setHasData("addon-histograms-section", addonHistogramsRendered);
 }
 
 window.addEventListener("load", onLoad, false);
