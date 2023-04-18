@@ -51,11 +51,6 @@ const PROFILE_RESET_DATE_MS = Date.now();
 // The profile creation date, in milliseconds (Yesterday).
 const PROFILE_CREATION_DATE_MS = PROFILE_RESET_DATE_MS - MILLISECONDS_PER_DAY;
 
-const gIsWindows = ("@mozilla.org/windows-registry-key;1" in Cc);
-const gIsMac = ("@mozilla.org/xpcom/mac-utils;1" in Cc);
-const gIsAndroid =  ("@mozilla.org/android/bridge;1" in Cc);
-const gIsGonk = ("@mozilla.org/cellbroadcast/gonkservice;1" in Cc);
-
 const FLASH_PLUGIN_NAME = "Shockwave Flash";
 const FLASH_PLUGIN_DESC = "A mock flash plugin";
 const FLASH_PLUGIN_VERSION = "\u201c1.1.1.1\u201d";
@@ -1096,9 +1091,7 @@ add_task(function* test_defaultSearchEngine() {
   resProt.setSubstitution("search-plugins",
                           Services.io.newURI(url, null, null));
 
-  // Initialize the search service and disable geoip lookup, so we don't get unwanted
-  // network connections.
-  Preferences.set("browser.search.geoip.url", "");
+  // Initialize the search service.
   yield new Promise(resolve => Services.search.init(resolve));
 
   // Our default engine from the JAR file has an identifier. Check if it is correctly

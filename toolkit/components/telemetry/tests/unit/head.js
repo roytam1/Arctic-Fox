@@ -18,6 +18,8 @@ const gIsLinux = AppConstants.platform == "linux";
 
 const Telemetry = Cc["@mozilla.org/base/telemetry;1"].getService(Ci.nsITelemetry);
 
+const Telemetry = Cc["@mozilla.org/base/telemetry;1"].getService(Ci.nsITelemetry);
+
 const MILLISECONDS_PER_MINUTE = 60 * 1000;
 const MILLISECONDS_PER_HOUR = 60 * MILLISECONDS_PER_MINUTE;
 const MILLISECONDS_PER_DAY = 24 * MILLISECONDS_PER_HOUR;
@@ -98,7 +100,7 @@ const PingServer = {
 
   promiseNextPings: function(count) {
     return this.promiseNextRequests(count).then(requests => {
-      return [for (req of requests) decodeRequestPayload(req)];
+      return Array.from(requests, decodeRequestPayload);
     });
   },
 };
@@ -148,7 +150,10 @@ function wrapWithExceptionHandler(f) {
   function wrapper(...args) {
     try {
       f(...args);
-    } catch (ex if typeof(ex) == 'object') {
+    } catch (ex) {
+      if (typeof(ex) != 'object') {
+        throw ex;
+      }
       dump("Caught exception: " + ex.message + "\n");
       dump(ex.stack);
       do_test_finished();
@@ -296,6 +301,7 @@ function fakeNow(...args) {
     Cu.import("resource://gre/modules/TelemetryController.jsm"),
     Cu.import("resource://gre/modules/TelemetryStorage.jsm"),
     Cu.import("resource://gre/modules/TelemetrySend.jsm"),
+    Cu.import("resource://gre/modules/TelemetryReportingPolicy.jsm"),
   ];
 
   for (let m of modules) {
@@ -303,6 +309,12 @@ function fakeNow(...args) {
   }
 
   return new Date(date);
+}
+
+function fakeMonotonicNow(ms) {
+  const m = Cu.import("resource://gre/modules/TelemetrySession.jsm");
+  m.Policy.monotonicNow = () => ms;
+  return ms;
 }
 
 // Fake the timeout functions for TelemetryController sending.
@@ -348,11 +360,23 @@ function promiseRejects(promise) {
   return promise.then(() => false, () => true);
 }
 
+// Short-hand for retrieving the histogram with that id.
+function getHistogram(histogramId) {
+  return Telemetry.getHistogramById(histogramId);
+}
+
+// Short-hand for retrieving the snapshot of the Histogram with that id.
+function getSnapshot(histogramId) {
+  return Telemetry.getHistogramById(histogramId).snapshot();
+}
+
 if (runningInParent) {
   // Set logging preferences for all the tests.
   Services.prefs.setCharPref("toolkit.telemetry.log.level", "Trace");
   // Telemetry archiving should be on.
   Services.prefs.setBoolPref("toolkit.telemetry.archive.enabled", true);
+  // Telemetry xpcshell tests cannot show the infobar.
+  Services.prefs.setBoolPref("datareporting.policy.dataSubmissionPolicyBypassNotification", true);
 
   fakePingSendTimer((callback, timeout) => {
     Services.tm.mainThread.dispatch(() => callback(), Ci.nsIThread.DISPATCH_NORMAL);
