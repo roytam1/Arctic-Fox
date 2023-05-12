@@ -584,16 +584,16 @@ EventStateManager::PreHandleEvent(nsPresContext* aPresContext,
     case WidgetMouseEvent::eLeftButton:
       BeginTrackingDragGesture(aPresContext, mouseEvent, aTargetFrame);
       mLClickCount = mouseEvent->clickCount;
-      SetClickCount(aPresContext, mouseEvent, aStatus);
+      SetClickCount(mouseEvent, aStatus);
       sNormalLMouseEventInProcess = true;
       break;
     case WidgetMouseEvent::eMiddleButton:
       mMClickCount = mouseEvent->clickCount;
-      SetClickCount(aPresContext, mouseEvent, aStatus);
+      SetClickCount(mouseEvent, aStatus);
       break;
     case WidgetMouseEvent::eRightButton:
       mRClickCount = mouseEvent->clickCount;
-      SetClickCount(aPresContext, mouseEvent, aStatus);
+      SetClickCount(mouseEvent, aStatus);
       break;
     }
     break;
@@ -609,7 +609,7 @@ EventStateManager::PreHandleEvent(nsPresContext* aPresContext,
         // then fall through...
       case WidgetMouseEvent::eRightButton:
       case WidgetMouseEvent::eMiddleButton:
-        SetClickCount(aPresContext, mouseEvent, aStatus);
+        SetClickCount(mouseEvent, aStatus);
         break;
     }
     break;
@@ -3084,7 +3084,7 @@ EventStateManager::PostHandleEvent(nsPresContext* aPresContext,
         }
         // Make sure to dispatch the click even if there is no frame for
         // the current target element. This is required for Web compatibility.
-        ret = CheckForAndDispatchClick(presContext, mouseEvent, aStatus);
+        ret = CheckForAndDispatchClick(mouseEvent, aStatus);
       }
 
       nsIPresShell *shell = presContext->GetPresShell();
@@ -4514,8 +4514,7 @@ EventStateManager::UpdateDragDataTransfer(WidgetDragEvent* dragEvent)
 }
 
 nsresult
-EventStateManager::SetClickCount(nsPresContext* aPresContext,
-                                 WidgetMouseEvent* aEvent,
+EventStateManager::SetClickCount(WidgetMouseEvent* aEvent,
                                  nsEventStatus* aStatus)
 {
   nsCOMPtr<nsIContent> mouseContent;
@@ -4618,8 +4617,7 @@ EventStateManager::InitAndDispatchClickEvent(WidgetMouseEvent* aEvent,
 }
 
 nsresult
-EventStateManager::CheckForAndDispatchClick(nsPresContext* aPresContext,
-                                            WidgetMouseEvent* aEvent,
+EventStateManager::CheckForAndDispatchClick(WidgetMouseEvent* aEvent,
                                             nsEventStatus* aStatus)
 {
   nsresult ret = NS_OK;
@@ -5690,14 +5688,16 @@ EventStateManager::WheelPrefs::NeedToComputeLineOrPageDelta(
          (mMultiplierY[index] != 1.0 && mMultiplierY[index] != -1.0);
 }
 
-bool
-EventStateManager::WheelPrefs::HasUserPrefsForDelta(WidgetWheelEvent* aEvent)
+void
+EventStateManager::WheelPrefs::GetUserPrefsForEvent(WidgetWheelEvent* aEvent,
+                                                    double* aOutMultiplierX,
+                                                    double* aOutMultiplierY)
 {
   Index index = GetIndexFor(aEvent);
   Init(index);
 
-  return mMultiplierX[index] != 1.0 ||
-         mMultiplierY[index] != 1.0;
+  *aOutMultiplierX = mMultiplierX[index];
+  *aOutMultiplierY = mMultiplierY[index];
 }
 
 bool
@@ -5707,10 +5707,13 @@ EventStateManager::WheelEventIsScrollAction(WidgetWheelEvent* aEvent)
          WheelPrefs::GetInstance()->ComputeActionFor(aEvent) == WheelPrefs::ACTION_SCROLL;
 }
 
-bool
-EventStateManager::WheelEventNeedsDeltaMultipliers(WidgetWheelEvent* aEvent)
+void
+EventStateManager::GetUserPrefsForWheelEvent(WidgetWheelEvent* aEvent,
+                                             double* aOutMultiplierX,
+                                             double* aOutMultiplierY)
 {
-  return WheelPrefs::GetInstance()->HasUserPrefsForDelta(aEvent);
+  WheelPrefs::GetInstance()->GetUserPrefsForEvent(
+    aEvent, aOutMultiplierX, aOutMultiplierY);
 }
 
 bool
