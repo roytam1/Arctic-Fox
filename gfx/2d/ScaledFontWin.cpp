@@ -20,7 +20,7 @@
 namespace mozilla {
 namespace gfx {
 
-ScaledFontWin::ScaledFontWin(LOGFONT* aFont, Float aSize)
+ScaledFontWin::ScaledFontWin(LOGFONTW* aFont, Float aSize)
   : ScaledFontBase(aSize)
   , mLogFont(*aFont)
 {

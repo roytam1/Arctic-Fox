@@ -77,7 +77,7 @@ NativeFontResourceGDI::CreateScaledFont(uint32_t aIndex, uint32_t aGlyphSize)
     return nullptr;
   }
 
-  LOGFONT logFont;
+  LOGFONTW logFont;
   logFont.lfHeight = 0;
   logFont.lfWidth = 0;
   logFont.lfEscapement = 0;
