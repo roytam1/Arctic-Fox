@@ -45,7 +45,6 @@
 #include "mozilla/MacroForEach.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/dom/ScriptSettings.h"
-#include "mozilla/UniquePtrExtensions.h"
 
 using namespace mozilla;
 using namespace mozilla::scache;
@@ -852,19 +851,19 @@ mozJSComponentLoader::ObjectForLocation(ComponentLoaderInfo& aInfo,
             uint32_t len = (uint32_t)len64;
 
             /* malloc an internal buf the size of the file */
-            auto buf = MakeUniqueFallible<char[]>(len + 1);
+            nsAutoArrayPtr<char> buf(new char[len + 1]);
             if (!buf)
                 return NS_ERROR_OUT_OF_MEMORY;
 
             /* read the file in one swoop */
-            rv = scriptStream->Read(buf.get(), len, &bytesRead);
+            rv = scriptStream->Read(buf, len, &bytesRead);
             if (bytesRead != len)
                 return NS_BASE_STREAM_OSERROR;
 
             buf[len] = '\0';
 
             if (!mReuseLoaderGlobal) {
-                Compile(cx, options, buf.get(), bytesRead, &script);
+                Compile(cx, options, buf, bytesRead, &script);
             } else {
                 // Note: exceptions will get handled further down;
                 // don't early return for them here.
@@ -872,7 +871,7 @@ mozJSComponentLoader::ObjectForLocation(ComponentLoaderInfo& aInfo,
                 if (scopeChain.append(obj)) {
                     CompileFunction(cx, scopeChain,
                                     options, nullptr, 0, nullptr,
-                                    buf.get(), bytesRead, &function);
+                                    buf, bytesRead, &function);
                 }
             }
         }
