@@ -742,8 +742,7 @@ nsDOMStyleSheetList::NodeWillBeDestroyed(const nsINode *aNode)
 }
 
 void
-nsDOMStyleSheetList::StyleSheetAdded(nsIDocument *aDocument,
-                                     CSSStyleSheet* aStyleSheet,
+nsDOMStyleSheetList::StyleSheetAdded(CSSStyleSheet* aStyleSheet,
                                      bool aDocumentSheet)
 {
   if (aDocumentSheet && -1 != mLength) {
@@ -752,8 +751,7 @@ nsDOMStyleSheetList::StyleSheetAdded(nsIDocument *aDocument,
 }
 
 void
-nsDOMStyleSheetList::StyleSheetRemoved(nsIDocument *aDocument,
-                                       CSSStyleSheet* aStyleSheet,
+nsDOMStyleSheetList::StyleSheetRemoved(CSSStyleSheet* aStyleSheet,
                                        bool aDocumentSheet)
 {
   if (aDocumentSheet && -1 != mLength) {
@@ -3658,14 +3656,12 @@ nsDocument::CreateShell(nsPresContext* aContext, nsViewManager* aViewManager,
   // Don't add anything here.  Add it to |doCreateShell| instead.
   // This exists so that subclasses can pass other values for the 4th
   // parameter some of the time.
-  return doCreateShell(aContext, aViewManager, aStyleSet,
-                       eCompatibility_FullStandards);
+  return doCreateShell(aContext, aViewManager, aStyleSet);
 }
 
 already_AddRefed<nsIPresShell>
 nsDocument::doCreateShell(nsPresContext* aContext,
-                          nsViewManager* aViewManager, nsStyleSet* aStyleSet,
-                          nsCompatibility aCompatMode)
+                          nsViewManager* aViewManager, nsStyleSet* aStyleSet)
 {
   NS_ASSERTION(!mPresShell, "We have a presshell already!");
 
@@ -3674,7 +3670,7 @@ nsDocument::doCreateShell(nsPresContext* aContext,
   FillStyleSet(aStyleSet);
 
   RefPtr<PresShell> shell = new PresShell;
-  shell->Init(this, aContext, aViewManager, aStyleSet, aCompatMode);
+  shell->Init(this, aContext, aViewManager, aStyleSet);
 
   // Note: we don't hold a ref to the shell (it holds a ref to us)
   mPresShell = shell;
@@ -4067,7 +4063,7 @@ nsDocument::AddStyleSheetToStyleSets(CSSStyleSheet* aSheet)
 void
 nsDocument::NotifyStyleSheetAdded(CSSStyleSheet* aSheet, bool aDocumentSheet)
 {
-  NS_DOCUMENT_NOTIFY_OBSERVERS(StyleSheetAdded, (this, aSheet, aDocumentSheet));
+  NS_DOCUMENT_NOTIFY_OBSERVERS(StyleSheetAdded, (aSheet, aDocumentSheet));
 
   if (StyleSheetChangeEventsEnabled()) {
     DO_STYLESHEET_NOTIFICATION(StyleSheetChangeEvent,
@@ -4080,7 +4076,7 @@ nsDocument::NotifyStyleSheetAdded(CSSStyleSheet* aSheet, bool aDocumentSheet)
 void
 nsDocument::NotifyStyleSheetRemoved(CSSStyleSheet* aSheet, bool aDocumentSheet)
 {
-  NS_DOCUMENT_NOTIFY_OBSERVERS(StyleSheetRemoved, (this, aSheet, aDocumentSheet));
+  NS_DOCUMENT_NOTIFY_OBSERVERS(StyleSheetRemoved, (aSheet, aDocumentSheet));
 
   if (StyleSheetChangeEventsEnabled()) {
     DO_STYLESHEET_NOTIFICATION(StyleSheetChangeEvent,
@@ -4208,8 +4204,7 @@ nsDocument::SetStyleSheetApplicableState(CSSStyleSheet* aSheet,
   // that are children of sheets in our style set, as well as some
   // sheets for nsHTMLEditor.
 
-  NS_DOCUMENT_NOTIFY_OBSERVERS(StyleSheetApplicableStateChanged,
-                               (this, aSheet, aApplicable));
+  NS_DOCUMENT_NOTIFY_OBSERVERS(StyleSheetApplicableStateChanged, (aSheet));
 
   if (StyleSheetChangeEventsEnabled()) {
     DO_STYLESHEET_NOTIFICATION(StyleSheetApplicableStateChangeEvent,
@@ -5114,9 +5109,7 @@ void
 nsDocument::StyleRuleChanged(CSSStyleSheet* aSheet,
                              css::Rule* aStyleRule)
 {
-  NS_DOCUMENT_NOTIFY_OBSERVERS(StyleRuleChanged,
-                               (this, aSheet,
-                                aStyleRule));
+  NS_DOCUMENT_NOTIFY_OBSERVERS(StyleRuleChanged, (aSheet));
 
   if (StyleSheetChangeEventsEnabled()) {
     DO_STYLESHEET_NOTIFICATION(StyleRuleChangeEvent,
@@ -5130,8 +5123,7 @@ void
 nsDocument::StyleRuleAdded(CSSStyleSheet* aSheet,
                            css::Rule* aStyleRule)
 {
-  NS_DOCUMENT_NOTIFY_OBSERVERS(StyleRuleAdded,
-                               (this, aSheet, aStyleRule));
+  NS_DOCUMENT_NOTIFY_OBSERVERS(StyleRuleAdded, (aSheet));
 
   if (StyleSheetChangeEventsEnabled()) {
     DO_STYLESHEET_NOTIFICATION(StyleRuleChangeEvent,
@@ -5146,8 +5138,7 @@ void
 nsDocument::StyleRuleRemoved(CSSStyleSheet* aSheet,
                              css::Rule* aStyleRule)
 {
-  NS_DOCUMENT_NOTIFY_OBSERVERS(StyleRuleRemoved,
-                               (this, aSheet, aStyleRule));
+  NS_DOCUMENT_NOTIFY_OBSERVERS(StyleRuleRemoved, (aSheet));
 
   if (StyleSheetChangeEventsEnabled()) {
     DO_STYLESHEET_NOTIFICATION(StyleRuleChangeEvent,
