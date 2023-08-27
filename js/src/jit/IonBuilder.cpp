@@ -3555,8 +3555,12 @@ IonBuilder::replaceTypeSet(MDefinition* subject, TemporaryTypeSet* type, MTest* 
 
             if (ins->type() == MIRType_Undefined)
                 current->setSlot(i, constant(UndefinedValue()));
-            if (ins->type() == MIRType_Null)
+            else if (ins->type() == MIRType_Null)
                 current->setSlot(i, constant(NullValue()));
+            else if (ins->type() == MIRType_MagicOptimizedArguments)
+                current->setSlot(i, constant(MagicValue(JS_OPTIMIZED_ARGUMENTS)));
+            else
+                MOZ_ASSERT(!IsMagicType(ins->type()));
             continue;
         }
 
@@ -3576,8 +3580,12 @@ IonBuilder::replaceTypeSet(MDefinition* subject, TemporaryTypeSet* type, MTest* 
 
                 if (replace->type() == MIRType_Undefined)
                     replace = constant(UndefinedValue());
-                if (replace->type() == MIRType_Null)
+                else if (replace->type() == MIRType_Null)
                     replace = constant(NullValue());
+                else if (replace->type() == MIRType_MagicOptimizedArguments)
+                    replace = constant(MagicValue(JS_OPTIMIZED_ARGUMENTS));
+                else
+                    MOZ_ASSERT(!IsMagicType(ins->type()));
             }
             current->setSlot(i, replace);
         }
@@ -5037,7 +5045,7 @@ IonBuilder::inlineScriptedCall(CallInfo& callInfo, JSFunction* target)
         if (types && !types->unknown()) {
             TemporaryTypeSet* clonedTypes = types->clone(alloc_->lifoAlloc());
             if (!clonedTypes)
-                return oom();
+                return false;
             MTypeBarrier* barrier = MTypeBarrier::New(alloc(), callInfo.thisArg(), clonedTypes);
             current->add(barrier);
             if (barrier->type() == MIRType_Undefined)
@@ -8380,11 +8388,10 @@ IonBuilder::jsop_intrinsic(PropertyName* name)
 {
     TemporaryTypeSet* types = bytecodeTypes(pc);
 
-    Value vp = script()->global().maybeExistingIntrinsicValue(name);
-
+    Value vp = UndefinedValue();
     // If the intrinsic value doesn't yet exist, we haven't executed this
     // opcode yet, so we need to get it and monitor the result.
-    if (vp.isUndefined()) {
+    if (!script()->global().maybeExistingIntrinsicValue(name, &vp)) {
         MCallGetIntrinsicValue* ins = MCallGetIntrinsicValue::New(alloc(), name);
 
         current->add(ins);
@@ -8669,10 +8676,10 @@ IonBuilder::checkTypedObjectIndexInBounds(int32_t elemSize,
         length = constantInt(lenOfAll);
 
         // If we are not loading the length from the object itself, only
-        // optimize if the array buffer can't have been neutered.
+        // optimize if the array buffer can never be a detached array buffer.
         TypeSet::ObjectKey* globalKey = TypeSet::ObjectKey::get(&script()->global());
-        if (globalKey->hasFlags(constraints(), OBJECT_FLAG_TYPED_OBJECT_NEUTERED)) {
-            trackOptimizationOutcome(TrackedOutcome::TypedObjectNeutered);
+        if (globalKey->hasFlags(constraints(), OBJECT_FLAG_TYPED_OBJECT_HAS_DETACHED_BUFFER)) {
+            trackOptimizationOutcome(TrackedOutcome::TypedObjectHasDetachedBuffer);
             return false;
         }
     } else {
@@ -9944,8 +9951,9 @@ IonBuilder::setElemTryCache(bool* emitted, MDefinition* object,
     }
 
     bool barrier = true;
+    bool indexIsInt32 = index->type() == MIRType_Int32;
 
-    if (index->type() == MIRType_Int32 &&
+    if (indexIsInt32 &&
         !PropertyWriteNeedsTypeBarrier(alloc(), constraints(), current,
                                        &object, nullptr, &value, /* canModify = */ true))
     {
@@ -9963,8 +9971,12 @@ IonBuilder::setElemTryCache(bool* emitted, MDefinition* object,
     bool checkNative = !clasp || !clasp->isNative();
     object = addMaybeCopyElementsForWrite(object, checkNative);
 
-    if (NeedsPostBarrier(value))
-        current->add(MPostWriteBarrier::New(alloc(), object, value));
+    if (NeedsPostBarrier(value)) {
+        if (indexIsInt32)
+            current->add(MPostWriteElementBarrier::New(alloc(), object, value, index));
+        else
+            current->add(MPostWriteBarrier::New(alloc(), object, value));
+    }
 
     // Emit SetPropertyCache.
     bool strict = JSOp(*pc) == JSOP_STRICTSETELEM;
@@ -9995,13 +10007,13 @@ IonBuilder::jsop_setelem_dense(TemporaryTypeSet::DoubleConversion conversion,
     // cannot hit another indexed property on the object or its prototypes.
     bool writeOutOfBounds = !ElementAccessHasExtraIndexedProperty(this, obj);
 
-    if (NeedsPostBarrier(value))
-        current->add(MPostWriteBarrier::New(alloc(), obj, value));
-
     // Ensure id is an integer.
     MInstruction* idInt32 = MToInt32::New(alloc(), id);
     current->add(idInt32);
     id = idInt32;
+
+    if (NeedsPostBarrier(value))
+        current->add(MPostWriteElementBarrier::New(alloc(), obj, value, id));
 
     // Copy the elements vector if necessary.
     obj = addMaybeCopyElementsForWrite(obj, /* checkNative = */ false);
@@ -10196,7 +10208,7 @@ IonBuilder::jsop_length_fastPath()
         TypedObjectPrediction prediction = typedObjectPrediction(obj);
         if (!prediction.isUseless()) {
             TypeSet::ObjectKey* globalKey = TypeSet::ObjectKey::get(&script()->global());
-            if (globalKey->hasFlags(constraints(), OBJECT_FLAG_TYPED_OBJECT_NEUTERED))
+            if (globalKey->hasFlags(constraints(), OBJECT_FLAG_TYPED_OBJECT_HAS_DETACHED_BUFFER))
                 return false;
 
             MInstruction* length;
@@ -11228,26 +11240,6 @@ IonBuilder::getPropTryConstant(bool* emitted, MDefinition* obj, jsid id, Tempora
     return true;
 }
 
-MIRType
-IonBuilder::SimdTypeDescrToMIRType(SimdTypeDescr::Type type)
-{
-    switch (type) {
-      case SimdTypeDescr::Int32x4:   return MIRType_Int32x4;
-      case SimdTypeDescr::Float32x4: return MIRType_Float32x4;
-      case SimdTypeDescr::Bool32x4:  return MIRType_Bool32x4;
-      case SimdTypeDescr::Int8x16:
-      case SimdTypeDescr::Int16x8:
-      case SimdTypeDescr::Uint8x16:
-      case SimdTypeDescr::Uint16x8:
-      case SimdTypeDescr::Uint32x4:
-      case SimdTypeDescr::Float64x2:
-      case SimdTypeDescr::Bool8x16:
-      case SimdTypeDescr::Bool16x8:
-      case SimdTypeDescr::Bool64x2: return MIRType_Undefined;
-    }
-    MOZ_CRASH("unimplemented MIR type for a SimdTypeDescr::Type");
-}
-
 bool
 IonBuilder::getPropTryTypedObject(bool* emitted,
                                   MDefinition* obj,
@@ -11297,9 +11289,9 @@ IonBuilder::getPropTryScalarPropOfTypedObject(bool* emitted, MDefinition* typedO
     // Must always be loading the same scalar type
     Scalar::Type fieldType = fieldPrediction.scalarType();
 
-    // Don't optimize if the typed object might be neutered.
+    // Don't optimize if the typed object's underlying buffer may be detached.
     TypeSet::ObjectKey* globalKey = TypeSet::ObjectKey::get(&script()->global());
-    if (globalKey->hasFlags(constraints(), OBJECT_FLAG_TYPED_OBJECT_NEUTERED))
+    if (globalKey->hasFlags(constraints(), OBJECT_FLAG_TYPED_OBJECT_HAS_DETACHED_BUFFER))
         return true;
 
     trackOptimizationSuccess();
@@ -11321,7 +11313,7 @@ IonBuilder::getPropTryReferencePropOfTypedObject(bool* emitted, MDefinition* typ
     ReferenceTypeDescr::Type fieldType = fieldPrediction.referenceType();
 
     TypeSet::ObjectKey* globalKey = TypeSet::ObjectKey::get(&script()->global());
-    if (globalKey->hasFlags(constraints(), OBJECT_FLAG_TYPED_OBJECT_NEUTERED))
+    if (globalKey->hasFlags(constraints(), OBJECT_FLAG_TYPED_OBJECT_HAS_DETACHED_BUFFER))
         return true;
 
     trackOptimizationSuccess();
@@ -11341,9 +11333,9 @@ IonBuilder::getPropTryComplexPropOfTypedObject(bool* emitted,
                                                TypedObjectPrediction fieldPrediction,
                                                size_t fieldIndex)
 {
-    // Don't optimize if the typed object might be neutered.
+    // Don't optimize if the typed object's underlying buffer may be detached.
     TypeSet::ObjectKey* globalKey = TypeSet::ObjectKey::get(&script()->global());
-    if (globalKey->hasFlags(constraints(), OBJECT_FLAG_TYPED_OBJECT_NEUTERED))
+    if (globalKey->hasFlags(constraints(), OBJECT_FLAG_TYPED_OBJECT_HAS_DETACHED_BUFFER))
         return true;
 
     // OK, perform the optimization
@@ -12331,7 +12323,7 @@ IonBuilder::setPropTryReferencePropOfTypedObject(bool* emitted,
     ReferenceTypeDescr::Type fieldType = fieldPrediction.referenceType();
 
     TypeSet::ObjectKey* globalKey = TypeSet::ObjectKey::get(&script()->global());
-    if (globalKey->hasFlags(constraints(), OBJECT_FLAG_TYPED_OBJECT_NEUTERED))
+    if (globalKey->hasFlags(constraints(), OBJECT_FLAG_TYPED_OBJECT_HAS_DETACHED_BUFFER))
         return true;
 
     LinearSum byteOffset(alloc());
@@ -12358,9 +12350,9 @@ IonBuilder::setPropTryScalarPropOfTypedObject(bool* emitted,
     // Must always be loading the same scalar type
     Scalar::Type fieldType = fieldPrediction.scalarType();
 
-    // Don't optimize if the typed object might be neutered.
+    // Don't optimize if the typed object's underlying buffer may be detached.
     TypeSet::ObjectKey* globalKey = TypeSet::ObjectKey::get(&script()->global());
-    if (globalKey->hasFlags(constraints(), OBJECT_FLAG_TYPED_OBJECT_NEUTERED))
+    if (globalKey->hasFlags(constraints(), OBJECT_FLAG_TYPED_OBJECT_HAS_DETACHED_BUFFER))
         return true;
 
     LinearSum byteOffset(alloc());
@@ -13002,6 +12994,9 @@ IonBuilder::jsop_functionthis()
         return true;
     }
 
+    if (IsNullOrUndefined(def->type()))
+        return pushConstant(GetThisValue(&script()->global()));
+
     MComputeThis* thisObj = MComputeThis::New(alloc(), def);
     current->add(thisObj);
     current->push(thisObj);
@@ -13277,21 +13272,13 @@ IonBuilder::jsop_in()
     MDefinition* obj = convertUnboxedObjects(current->pop());
     MDefinition* id = current->pop();
 
-    do {
-        if (shouldAbortOnPreliminaryGroups(obj))
-            break;
+    bool emitted = false;
 
-        JSValueType unboxedType = UnboxedArrayElementType(constraints(), obj, id);
-        if (unboxedType == JSVAL_TYPE_MAGIC) {
-            if (!ElementAccessIsDenseNative(constraints(), obj, id))
-                break;
-        }
+    if (!inTryDense(&emitted, obj, id) || emitted)
+        return emitted;
 
-        if (ElementAccessHasExtraIndexedProperty(this, obj))
-            break;
-
-        return jsop_in_dense(obj, id, unboxedType);
-    } while (false);
+    if (!inTryFold(&emitted, obj, id) || emitted)
+        return emitted;
 
     MIn* ins = MIn::New(alloc(), id, obj);
 
@@ -13302,8 +13289,24 @@ IonBuilder::jsop_in()
 }
 
 bool
-IonBuilder::jsop_in_dense(MDefinition* obj, MDefinition* id, JSValueType unboxedType)
+IonBuilder::inTryDense(bool* emitted, MDefinition* obj, MDefinition* id)
 {
+    MOZ_ASSERT(!*emitted);
+
+    if (shouldAbortOnPreliminaryGroups(obj))
+        return true;
+
+    JSValueType unboxedType = UnboxedArrayElementType(constraints(), obj, id);
+    if (unboxedType == JSVAL_TYPE_MAGIC) {
+        if (!ElementAccessIsDenseNative(constraints(), obj, id))
+            return true;
+    }
+
+    if (ElementAccessHasExtraIndexedProperty(this, obj))
+        return true;
+
+    *emitted = true;
+
     bool needsHoleCheck = !ElementAccessIsPacked(constraints(), obj);
 
     // Ensure id is an integer.
@@ -13330,6 +13333,67 @@ IonBuilder::jsop_in_dense(MDefinition* obj, MDefinition* id, JSValueType unboxed
     current->add(ins);
     current->push(ins);
 
+    return true;
+}
+
+bool
+IonBuilder::inTryFold(bool* emitted, MDefinition* obj, MDefinition* id)
+{
+    // Fold |id in obj| to |false|, if we know the object (or an object on its
+    // prototype chain) does not have this property.
+
+    MOZ_ASSERT(!*emitted);
+
+    jsid propId;
+    if (!id->isConstantValue() || !ValueToIdPure(id->constantValue(), &propId))
+        return true;
+
+    if (propId != IdToTypeId(propId))
+        return true;
+
+    TemporaryTypeSet* types = obj->resultTypeSet();
+    if (!types || types->unknownObject())
+        return true;
+
+    for (unsigned i = 0, count = types->getObjectCount(); i < count; i++) {
+        TypeSet::ObjectKey* key = types->getObject(i);
+        if (!key)
+            continue;
+
+        while (true) {
+            if (!key->hasStableClassAndProto(constraints()) || key->unknownProperties())
+                return true;
+
+            const Class* clasp = key->clasp();
+            if (!ClassHasEffectlessLookup(clasp) || ObjectHasExtraOwnProperty(compartment, key, propId))
+                return true;
+
+            // If the object is a singleton, we can do a lookup now to avoid
+            // unnecessary invalidations later on, in case the property types
+            // have not yet been instantiated.
+            if (key->isSingleton() &&
+                key->singleton()->is<NativeObject>() &&
+                key->singleton()->as<NativeObject>().lookupPure(propId))
+            {
+                return true;
+            }
+
+            HeapTypeSetKey property = key->property(propId);
+            if (property.isOwnProperty(constraints()))
+                return true;
+
+            JSObject* proto = checkNurseryObject(key->proto().toObjectOrNull());
+            if (!proto)
+                break;
+            key = TypeSet::ObjectKey::get(proto);
+        }
+    }
+
+    *emitted = true;
+
+    pushConstant(BooleanValue(false));
+    obj->setImplicitlyUsedUnchecked();
+    id->setImplicitlyUsedUnchecked();
     return true;
 }
 
