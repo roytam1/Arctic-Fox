@@ -6197,7 +6197,7 @@ void nsWindow::OnWindowPosChanged(WINDOWPOS* wp)
       default:
           MOZ_LOG(gWindowsLog, LogLevel::Info, ("*** mSizeMode: ??????\n"));
         break;
-    };
+    }
 #endif
 
     if (mWidgetListener)
