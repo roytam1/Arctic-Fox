@@ -43,6 +43,9 @@ XPCOMUtils.defineLazyModuleGetter(this, "BookmarkHTMLUtils",
 XPCOMUtils.defineLazyModuleGetter(this, "BookmarkJSONUtils",
                                   "resource://gre/modules/BookmarkJSONUtils.jsm");
 
+XPCOMUtils.defineLazyModuleGetter(this, "WebappManager",
+                                  "resource:///modules/WebappManager.jsm");
+
 XPCOMUtils.defineLazyModuleGetter(this, "PageThumbs",
                                   "resource://gre/modules/PageThumbs.jsm");
 
@@ -69,6 +72,9 @@ XPCOMUtils.defineLazyModuleGetter(this, "PlacesBackups",
 
 XPCOMUtils.defineLazyModuleGetter(this, "OS",
                                   "resource://gre/modules/osfile.jsm");
+
+XPCOMUtils.defineLazyModuleGetter(this, "RemotePrompt",
+                                  "resource:///modules/RemotePrompt.jsm");
 
 XPCOMUtils.defineLazyModuleGetter(this, "Feeds",
                                   "resource:///modules/Feeds.jsm");
@@ -713,6 +719,7 @@ BrowserGlue.prototype = {
 
     this._syncSearchEngines();
 
+    WebappManager.init();
     PageThumbs.init();
     webrtcUI.init();
     AboutHome.init();
@@ -729,8 +736,10 @@ BrowserGlue.prototype = {
       Services.prefs.setBoolPref('media.mediasource.webm.enabled', false);
     }
 
-    if (Services.prefs.getBoolPref("browser.tabs.remote"))
+    if (Services.prefs.getBoolPref("browser.tabs.remote")) {
       ContentClick.init();
+      RemotePrompt.init();
+    }
     Feeds.init();
 
     LoginManagerParent.init();
@@ -749,13 +758,12 @@ BrowserGlue.prototype = {
       });
     }
 
-    Services.obs.notifyObservers(null, "browser-ui-startup-complete", "");
-
     TabCrashHandler.init();
     if (AppConstants.MOZ_CRASHREPORTER) {
       PluginCrashReporter.init();
     }
 
+    Services.obs.notifyObservers(null, "browser-ui-startup-complete", "");
   },
 
   _setUpUserAgentOverrides: function BG__setUpUserAgentOverrides() {
@@ -976,6 +984,7 @@ BrowserGlue.prototype = {
    */
   _onProfileShutdown: function BG__onProfileShutdown() {
     UserAgentOverrides.uninit();
+    WebappManager.uninit();
     webrtcUI.uninit();
     FormValidationHandler.uninit();
     if (AppConstants.NIGHTLY_BUILD) {

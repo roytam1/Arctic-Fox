@@ -436,7 +436,7 @@ var PlacesOrganizer = {
     while (restorePopup.childNodes.length > 1)
       restorePopup.removeChild(restorePopup.firstChild);
 
-    Task.spawn(function() {
+    Task.spawn(function* () {
       let backupFiles = yield PlacesBackups.getBackupFiles();
       if (backupFiles.length == 0)
         return;
@@ -483,18 +483,16 @@ var PlacesOrganizer = {
   /**
    * Called when a menuitem is selected from the restore menu.
    */
-  onRestoreMenuItemClick: function PO_onRestoreMenuItemClick(aMenuItem) {
-    Task.spawn(function() {
-      let backupName = aMenuItem.getAttribute("value");
-      let backupFilePaths = yield PlacesBackups.getBackupFiles();
-      for (let backupFilePath of backupFilePaths) {
-        if (OS.Path.basename(backupFilePath) == backupName) {
-          PlacesOrganizer.restoreBookmarksFromFile(new FileUtils.File(backupFilePath));
-          break;
-        }
+  onRestoreMenuItemClick: Task.async(function* (aMenuItem) {
+    let backupName = aMenuItem.getAttribute("value");
+    let backupFilePaths = yield PlacesBackups.getBackupFiles();
+    for (let backupFilePath of backupFilePaths) {
+      if (OS.Path.basename(backupFilePath) == backupName) {
+        PlacesOrganizer.restoreBookmarksFromFile(backupFilePath);
+        break;
       }
-    });
-  },
+    }
+  }),
 
   /**
    * Called when 'Choose File...' is selected from the restore menu.
@@ -507,7 +505,7 @@ var PlacesOrganizer = {
     let fp = Cc["@mozilla.org/filepicker;1"].createInstance(Ci.nsIFilePicker);
     let fpCallback = function fpCallback_done(aResult) {
       if (aResult != Ci.nsIFilePicker.returnCancel) {
-        this.restoreBookmarksFromFile(fp.file);
+        this.restoreBookmarksFromFile(fp.file.path);
       }
     }.bind(this);
 
@@ -523,11 +521,10 @@ var PlacesOrganizer = {
   /**
    * Restores bookmarks from a JSON file.
    */
-  restoreBookmarksFromFile: function PO_restoreBookmarksFromFile(aFile) {
+  restoreBookmarksFromFile: function PO_restoreBookmarksFromFile(aFilePath) {
     // check file extension
-    let filePath = aFile.path;
-    if (!filePath.toLowerCase().endsWith("json") &&
-        !filePath.toLowerCase().endsWith("jsonlz4"))  {
+    if (!aFilePath.toLowerCase().endsWith("json") &&
+        !aFilePath.toLowerCase().endsWith("jsonlz4"))  {
       this._showErrorAlert(PlacesUIUtils.getString("bookmarksRestoreFormatError"));
       return;
     }
@@ -540,9 +537,9 @@ var PlacesOrganizer = {
                          PlacesUIUtils.getString("bookmarksRestoreAlert")))
       return;
 
-    Task.spawn(function() {
+    Task.spawn(function* () {
       try {
-        yield BookmarkJSONUtils.importFromFile(aFile, true);
+        yield BookmarkJSONUtils.importFromFile(aFilePath, true);
       } catch(ex) {
         PlacesOrganizer._showErrorAlert(PlacesUIUtils.getString("bookmarksRestoreParseError"));
       }
@@ -665,7 +662,7 @@ var PlacesOrganizer = {
       // don't update the panel if we are already editing this node unless we're
       // in multi-edit mode
       if (selectedNode) {
-        var concreteId = PlacesUtils.getConcreteItemId(selectedNode);
+        let concreteId = PlacesUtils.getConcreteItemId(selectedNode);
         var nodeIsSame = gEditItemOverlay.itemId == selectedNode.itemId ||
                          gEditItemOverlay.itemId == concreteId ||
                          (selectedNode.itemId == -1 && gEditItemOverlay.uri &&
@@ -685,7 +682,7 @@ var PlacesOrganizer = {
       // does allow setting properties for folder shortcuts as well, but since
       // the UI does not distinct between the couple, we better just show
       // the concrete item properties for shortcuts to root nodes.
-      var concreteId = PlacesUtils.getConcreteItemId(selectedNode);
+      let concreteId = PlacesUtils.getConcreteItemId(selectedNode);
       var isRootItem = concreteId != -1 && PlacesUtils.isRootItem(concreteId);
       var readOnly = isRootItem ||
                      selectedNode.parent.itemId == PlacesUIUtils.leftPaneFolderId;
@@ -1369,13 +1366,13 @@ var ViewMenu = {
     if (aColumn) {
       columnId = aColumn.getAttribute("anonid");
       if (!aDirection) {
-        var sortColumn = this._getSortColumn();
+        let sortColumn = this._getSortColumn();
         if (sortColumn)
           aDirection = sortColumn.getAttribute("sortDirection");
       }
     }
     else {
-      var sortColumn = this._getSortColumn();
+      let sortColumn = this._getSortColumn();
       columnId = sortColumn ? sortColumn.getAttribute("anonid") : "title";
     }
 

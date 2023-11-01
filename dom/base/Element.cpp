@@ -2015,11 +2015,11 @@ Element::ShouldBlur(nsIContent *aContent)
   if (!document)
     return false;
 
-  nsCOMPtr<nsPIDOMWindow> window = do_QueryInterface(document->GetWindow());
+  nsCOMPtr<nsPIDOMWindowOuter> window = document->GetWindow();
   if (!window)
     return false;
 
-  nsCOMPtr<nsPIDOMWindow> focusedFrame;
+  nsCOMPtr<nsPIDOMWindowOuter> focusedFrame;
   nsIContent* contentToBlur =
     nsFocusManager::GetFocusedDescendant(window, false, getter_AddRefs(focusedFrame));
   if (contentToBlur == aContent)
@@ -3230,7 +3230,6 @@ Element::AttrValueToCORSMode(const nsAttrValue* aValue)
 static const char*
 GetFullScreenError(nsIDocument* aDoc)
 {
-  nsCOMPtr<nsPIDOMWindow> win = aDoc->GetWindow();
   if (aDoc->NodePrincipal()->GetAppStatus() >= nsIPrincipal::APP_STATUS_INSTALLED) {
     // Request is in a web app and in the same origin as the web app.
     // Don't enforce as strict security checks for web apps, the user
@@ -3316,6 +3315,13 @@ Element::GetAnimations(nsTArray<RefPtr<Animation>>& aAnimations)
     doc->FlushPendingNotifications(Flush_Style);
   }
 
+  GetAnimationsUnsorted(aAnimations);
+  aAnimations.Sort(AnimationPtrComparator<RefPtr<Animation>>());
+}
+
+void
+Element::GetAnimationsUnsorted(nsTArray<RefPtr<Animation>>& aAnimations)
+{
   EffectSet* effects = EffectSet::GetEffectSet(this,
                          nsCSSPseudoElements::ePseudo_NotPseudoElement);
   if (!effects) {
@@ -3333,8 +3339,6 @@ Element::GetAnimations(nsTArray<RefPtr<Animation>>& aAnimations)
                "effect set");
     aAnimations.AppendElement(animation);
   }
-
-  aAnimations.Sort(AnimationPtrComparator<RefPtr<Animation>>());
 }
 
 NS_IMETHODIMP
