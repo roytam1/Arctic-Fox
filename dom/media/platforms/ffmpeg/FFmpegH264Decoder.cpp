@@ -9,7 +9,6 @@
 #include "nsThreadUtils.h"
 #include "nsAutoPtr.h"
 #include "ImageContainer.h"
-#include "FFmpegRuntimeLinker.h"
 
 #include "MediaInfo.h"
 
@@ -39,13 +38,6 @@ namespace mozilla
  * For now, we just look for YUV420P, YUVJ420P and YUV444 as those are the only
  * non-HW accelerated format supported by FFmpeg's H.264 and VP9 decoder.
  */
-
-#if defined(XP_WIN)
-static int (*avcodec_decode_video2)(AVCodecContext*,AVFrame*,
-                         int*,const AVPacket*) = nullptr;
-static void (*av_init_packet)(AVPacket*) = nullptr;
-#endif
-
 static AVPixelFormat
 ChoosePixelFormat(AVCodecContext* aCodecContext, const AVPixelFormat* aFormats)
 {
@@ -133,8 +125,6 @@ FFmpegH264Decoder<LIBAV_VER>::Init()
   if (NS_FAILED(InitDecoder())) {
     return InitPromise::CreateAndReject(DecoderFailureReason::INIT_ERROR, __func__);
   }
-  avcodec_decode_video2 = (decltype(avcodec_decode_video2))FFmpegRuntimeLinker::avc_ptr[_decode_video2];
-  av_init_packet = (decltype(av_init_packet))FFmpegRuntimeLinker::avc_ptr[_init_packet];
 
   return InitPromise::CreateAndResolve(TrackInfo::kVideoTrack, __func__);
 }
@@ -173,12 +163,7 @@ FFmpegH264Decoder<LIBAV_VER>::InitCodecContext()
   // FFmpeg will call back to this to negotiate a video pixel format.
   mCodecContext->get_format = ChoosePixelFormat;
 
-  mCodecParser =
-#if defined(XP_WIN)
-           reinterpret_cast<AVCodecParserContext*(*)(int)>(FFmpegRuntimeLinker::avc_ptr[_parser_init])(mCodecID);
-#else
-           av_parser_init(mCodecID);
-#endif
+  mCodecParser = av_parser_init(mCodecID);
   if (mCodecParser) {
     mCodecParser->flags |= PARSER_FLAG_COMPLETE_FRAMES;
   }
@@ -202,22 +187,10 @@ FFmpegH264Decoder<LIBAV_VER>::DoDecodeFrame(MediaRawData* aSample)
     while (inputSize) {
       uint8_t* data;
       int size;
-
-      int len = 
-#if defined(XP_WIN)
-                reinterpret_cast<int(*)(AVCodecParserContext*,AVCodecContext*,uint8_t**,int*,
-                                 const uint8_t*,int,int64_t,int64_t,int64_t)>
-                                 (FFmpegRuntimeLinker::avc_ptr[_parser_parse2])(mCodecParser,
-                                 mCodecContext, &data, &size,
+      int len = av_parser_parse2(mCodecParser, mCodecContext, &data, &size,
                                  inputData, inputSize,
                                  aSample->mTime, aSample->mTimecode,
                                  aSample->mOffset);
-#else
-                av_parser_parse2(mCodecParser, mCodecContext, &data, &size,
-                                 inputData, inputSize,
-                                 aSample->mTime, aSample->mTimecode,
-                                 aSample->mOffset);
-#endif
       if (size_t(len) > inputSize) {
         mCallback->Error();
         return DecodeResult::DECODE_ERROR;
@@ -392,11 +365,7 @@ FFmpegH264Decoder<LIBAV_VER>::~FFmpegH264Decoder()
 {
   MOZ_COUNT_DTOR(FFmpegH264Decoder);
   if (mCodecParser) {
-#if defined(XP_WIN)
-    reinterpret_cast<void(*)(AVCodecParserContext*)>(FFmpegRuntimeLinker::avc_ptr[_parser_close])(mCodecParser);
-#else
     av_parser_close(mCodecParser);
-#endif
     mCodecParser = nullptr;
   }
 }

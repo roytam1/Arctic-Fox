@@ -7,10 +7,7 @@
 #include "mozilla/TaskQueue.h"
 
 #include <string.h>
-#if defined(XP_WIN)
-#else
 #include <unistd.h>
-#endif
 
 #include "FFmpegLog.h"
 #include "FFmpegDataDecoder.h"
@@ -56,13 +53,7 @@ FFmpegDataDecoder<LIBAV_VER>::InitDecoder()
 
   StaticMutexAutoLock mon(sMonitor);
 
-  if (!(mCodecContext = 
-#if defined(XP_WIN)
-       reinterpret_cast<AVCodecContext*(*)(const AVCodec*)>(FFmpegRuntimeLinker::avc_ptr[_alloc_context3])(codec)
-#else
-       avcodec_alloc_context3(codec)
-#endif
-      )) {
+  if (!(mCodecContext = avcodec_alloc_context3(codec))) {
     NS_WARNING("Couldn't init ffmpeg context");
     return NS_ERROR_FAILURE;
   }
@@ -91,21 +82,10 @@ FFmpegDataDecoder<LIBAV_VER>::InitDecoder()
   }
 #endif
 
-  if (
-#if defined(XP_WIN)
-      reinterpret_cast<int(*)(AVCodecContext*,const AVCodec*,AVDictionary**)>(FFmpegRuntimeLinker::avc_ptr[_open2])(mCodecContext, codec, nullptr)
-#else
-      avcodec_open2(mCodecContext, codec, nullptr)
-#endif
-     < 0) {
+  if (avcodec_open2(mCodecContext, codec, nullptr) < 0) {
     NS_WARNING("Couldn't initialise ffmpeg decoder");
-#if defined(XP_WIN)
-    reinterpret_cast<int(*)(AVCodecContext*)>(FFmpegRuntimeLinker::avc_ptr[_close])(mCodecContext);
-    reinterpret_cast<void(*)(void*)>(FFmpegRuntimeLinker::avc_ptr[_freep])(&mCodecContext);
-#else
     avcodec_close(mCodecContext);
     av_freep(&mCodecContext);
-#endif
     return NS_ERROR_FAILURE;
   }
 
@@ -166,11 +146,7 @@ FFmpegDataDecoder<LIBAV_VER>::ProcessFlush()
 {
   MOZ_ASSERT(mTaskQueue->IsCurrentThreadIn());
   if (mCodecContext) {
-#if defined(XP_WIN)
-    reinterpret_cast<void(*)(AVCodecContext*)>(FFmpegRuntimeLinker::avc_ptr[_flush_buffers])(mCodecContext);
-#else
     avcodec_flush_buffers(mCodecContext);
-#endif
   }
   MonitorAutoLock mon(mMonitor);
   mIsFlushing = false;
@@ -183,11 +159,6 @@ FFmpegDataDecoder<LIBAV_VER>::ProcessShutdown()
   StaticMutexAutoLock mon(sMonitor);
 
   if (sFFmpegInitDone && mCodecContext) {
-#if defined(XP_WIN)
-    reinterpret_cast<int(*)(AVCodecContext*)>(FFmpegRuntimeLinker::avc_ptr[_close])(mCodecContext);
-    reinterpret_cast<void(*)(void*)>(FFmpegRuntimeLinker::avc_ptr[_freep])(&mCodecContext);
-    reinterpret_cast<void(*)(AVFrame**)>(FFmpegRuntimeLinker::avc_ptr[_frame_free])(&mFrame);
-#else
     avcodec_close(mCodecContext);
     av_freep(&mCodecContext);
 #if LIBAVCODEC_VERSION_MAJOR >= 55
@@ -196,7 +167,6 @@ FFmpegDataDecoder<LIBAV_VER>::ProcessShutdown()
     avcodec_free_frame(&mFrame);
 #else
     av_freep(&mFrame);
-#endif
 #endif
   }
 }
@@ -207,18 +177,9 @@ FFmpegDataDecoder<LIBAV_VER>::PrepareFrame()
   MOZ_ASSERT(mTaskQueue->IsCurrentThreadIn());
 #if LIBAVCODEC_VERSION_MAJOR >= 55
   if (mFrame) {
-#if defined(XP_WIN)
-    reinterpret_cast<void(*)(AVFrame*)>(FFmpegRuntimeLinker::avc_ptr[_frame_unref])(mFrame);
-#else
     av_frame_unref(mFrame);
-#endif
   } else {
-    mFrame = 
-#if defined(XP_WIN)
-        reinterpret_cast<AVFrame*(*)()>(FFmpegRuntimeLinker::avc_ptr[_frame_alloc])();
-#else
-        av_frame_alloc();
-#endif
+    mFrame = av_frame_alloc();
   }
 #elif LIBAVCODEC_VERSION_MAJOR == 54
   if (mFrame) {
@@ -238,25 +199,13 @@ FFmpegDataDecoder<LIBAV_VER>::FindAVCodec(AVCodecID aCodec)
 {
   StaticMutexAutoLock mon(sMonitor);
   if (!sFFmpegInitDone) {
-#if defined(XP_WIN)
-    reinterpret_cast<void(*)()>(FFmpegRuntimeLinker::avc_ptr[_register_all])();
-#else
     avcodec_register_all();
-#endif
 #ifdef DEBUG
-#if defined(XP_WIN)
-    reinterpret_cast<void(*)(int)>(FFmpegRuntimeLinker::avc_ptr[_log_set_level])(AV_LOG_DEBUG);
-#else
     av_log_set_level(AV_LOG_DEBUG);
-#endif
 #endif
     sFFmpegInitDone = true;
   }
-#if defined(XP_WIN)
-  return reinterpret_cast<AVCodec*(*)(enum AVCodecID)>(FFmpegRuntimeLinker::avc_ptr[_find_decoder])(aCodec);
-#else
   return avcodec_find_decoder(aCodec);
-#endif
 }
 
 } // namespace mozilla
