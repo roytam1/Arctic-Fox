@@ -1736,6 +1736,9 @@ Element::UnbindFromTree(bool aDeep, bool aNullParent)
   nsIDocument* document =
     HasFlag(NODE_FORCE_XBL_BINDINGS) ? OwnerDoc() : GetComposedDoc();
 
+  if (HasPointerLock()) {
+    nsIDocument::UnlockPointer();
+  }
   if (aNullParent) {
     if (IsFullScreenAncestor()) {
       // The element being removed is an ancestor of the full-screen element,
@@ -1743,12 +1746,9 @@ Element::UnbindFromTree(bool aDeep, bool aNullParent)
       nsContentUtils::ReportToConsole(nsIScriptError::warningFlag,
                                       NS_LITERAL_CSTRING("DOM"), OwnerDoc(),
                                       nsContentUtils::eDOM_PROPERTIES,
-                                      "RemovedFullScreenElement");
+                                      "RemovedFullscreenElement");
       // Fully exit full-screen.
       nsIDocument::ExitFullscreenInDocTree(OwnerDoc());
-    }
-    if (HasPointerLock()) {
-      nsIDocument::UnlockPointer();
     }
 
     if (GetParent() && GetParent()->IsInUncomposedDoc()) {
@@ -3243,15 +3243,15 @@ GetFullScreenError(nsIDocument* aDoc)
   }
 
   if (!nsContentUtils::IsRequestFullScreenAllowed()) {
-    return "FullScreenDeniedNotInputDriven";
+    return "FullscreenDeniedNotInputDriven";
   }
 
   return nullptr;
 }
 
 void
-Element::MozRequestFullScreen(JSContext* aCx, JS::Handle<JS::Value> aOptions,
-                              ErrorResult& aError)
+Element::RequestFullscreen(JSContext* aCx, JS::Handle<JS::Value> aOptions,
+                           ErrorResult& aError)
 {
   MOZ_ASSERT_IF(!aCx, aOptions.isNullOrUndefined());
   // Only grant full-screen requests if this is called from inside a trusted
@@ -3261,18 +3261,8 @@ Element::MozRequestFullScreen(JSContext* aCx, JS::Handle<JS::Value> aOptions,
   // spoof the browser chrome/window and phish logins etc.
   // Note that requests for fullscreen inside a web app's origin are exempt
   // from this restriction.
-  const char* error = GetFullScreenError(OwnerDoc());
-  if (error) {
-    nsContentUtils::ReportToConsole(nsIScriptError::warningFlag,
-                                    NS_LITERAL_CSTRING("DOM"), OwnerDoc(),
-                                    nsContentUtils::eDOM_PROPERTIES,
-                                    error);
-    RefPtr<AsyncEventDispatcher> asyncDispatcher =
-      new AsyncEventDispatcher(OwnerDoc(),
-                               NS_LITERAL_STRING("mozfullscreenerror"),
-                               true,
-                               false);
-    asyncDispatcher->PostDOMEvent();
+  if (const char* error = GetFullScreenError(OwnerDoc())) {
+    OwnerDoc()->DispatchFullscreenError(error);
     return;
   }
 
