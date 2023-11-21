@@ -650,6 +650,7 @@ BrotliDecompressBuffer
 BrotliStateInit
 BrotliStateCleanup
 BrotliDecompressStream
+BrotliStateIsStreamEnd
 #ifdef MOZ_WEBRTC
 downmix_int
 run_analysis
