@@ -329,17 +329,12 @@ public:
    * of the document's ancestors up to the toplevel document makes use
    * of the CSP directive 'upgrade-insecure-requests'.
    */
-  bool GetUpgradeInsecureRequests() const
+  bool GetUpgradeInsecureRequests(bool aPreload) const
   {
+    if (aPreload) {
+      return mUpgradeInsecurePreloads;
+    }
     return mUpgradeInsecureRequests;
-  }
-
-  /**
-   * Same as GetUpgradeInsecureRequests() but *only* for preloads.
-   */
-  bool GetUpgradeInsecurePreloads() const
-  {
-    return mUpgradeInsecurePreloads;
   }
 
   /**
@@ -1665,6 +1660,16 @@ public:
                                           bool aIgnoreRootScrollFrame,
                                           bool aFlushLayout) = 0;
 
+  enum ElementsFromPointFlags {
+    IGNORE_ROOT_SCROLL_FRAME = 1,
+    FLUSH_LAYOUT = 2,
+    IS_ELEMENT_FROM_POINT = 4
+  };
+
+  virtual void ElementsFromPointHelper(float aX, float aY,
+                                       uint32_t aFlags,
+                                       nsTArray<RefPtr<mozilla::dom::Element>>& aElements) = 0;
+
   virtual nsresult NodesFromRectHelper(float aX, float aY,
                                        float aTopSize, float aRightSize,
                                        float aBottomSize, float aLeftSize,
@@ -2555,6 +2560,9 @@ public:
   virtual mozilla::dom::DOMStringList* StyleSheetSets() = 0;
   virtual void EnableStyleSheetsForSet(const nsAString& aSheetSet) = 0;
   Element* ElementFromPoint(float aX, float aY);
+  void ElementsFromPoint(float aX,
+                         float aY,
+                         nsTArray<RefPtr<mozilla::dom::Element>>& aElements);
 
   /**
    * Retrieve the location of the caret position (DOM node and character
@@ -2613,6 +2621,8 @@ public:
   void ObsoleteSheet(nsIURI *aSheetURI, mozilla::ErrorResult& rv);
 
   void ObsoleteSheet(const nsAString& aSheetURI, mozilla::ErrorResult& rv);
+
+  already_AddRefed<nsIURI> GetMozDocumentURIIfNotForErrorPages();
 
   // ParentNode
   nsIHTMLCollection* Children();
