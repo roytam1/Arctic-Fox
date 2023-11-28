@@ -5583,6 +5583,7 @@ PresShell::MarkImagesInSubtreeVisible(nsIFrame* aFrame, const nsRect& aRect)
 
   nsIScrollableFrame* scrollFrame = do_QueryFrame(aFrame);
   if (scrollFrame) {
+    scrollFrame->NotifyImageVisibilityUpdate();
     nsRect displayPort;
     bool usingDisplayport =
       nsLayoutUtils::GetDisplayPortForVisibilityTesting(
@@ -5694,10 +5695,6 @@ PresShell::UpdateImageVisibility()
 
     if (IgnoringViewportScrolling()) {
       builder.SetIgnoreScrollFrame(rootScroll);
-      // The ExpandRectToNearlyVisible that the root scroll frame would do gets short
-      // circuited due to us ignoring the root scroll frame, so we do it here.
-      nsIScrollableFrame* rootScrollable = do_QueryFrame(rootScroll);
-      updateRect = rootScrollable->ExpandRectToNearlyVisible(updateRect);
     }
   }
   builder.IgnorePaintSuppression();
