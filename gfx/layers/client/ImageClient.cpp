@@ -30,6 +30,7 @@
 #include "nsISupportsImpl.h"            // for Image::Release, etc
 #include "nsRect.h"                     // for mozilla::gfx::IntRect
 #include "mozilla/gfx/2D.h"
+#include "ClientLayerManager.h"
 #ifdef MOZ_WIDGET_GONK
 #include "GrallocImages.h"
 #endif
