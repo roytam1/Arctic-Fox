@@ -162,28 +162,6 @@ const BOOKMARKS_BACKUP_MIN_INTERVAL_DAYS = 1;
 // days we will try to create a new one more aggressively.
 const BOOKMARKS_BACKUP_MAX_INTERVAL_DAYS = 3;
 
-// Record the current default search engine in Telemetry.
-function recordDefaultSearchEngine() {
-  let engine;
-  try {
-    engine = Services.search.defaultEngine;
-  } catch (e) {}
-  let name;
-
-  if (!engine) {
-    name = "NONE";
-  } else if (engine.identifier) {
-    name = engine.identifier;
-  } else if (engine.name) {
-    name = "other-" + engine.name;
-  } else {
-    name = "UNDEFINED";
-  }
-
-  let engines = Services.telemetry.getKeyedHistogramById("SEARCH_DEFAULT_ENGINE");
-  engines.add(name, true)
-}
-
 // Factory object
 const BrowserGlueServiceFactory = {
   _instance: null,
@@ -405,37 +383,21 @@ BrowserGlue.prototype = {
         this._onProfileShutdown();
         break;
       case "browser-search-engine-modified":
-        if (data != "engine-default" && data != "engine-current") {
-          break;
+        // Ensure we cleanup the hiddenOneOffs pref when removing
+        // an engine, and that newly added engines are visible.
+        if (data == "engine-added" || data == "engine-removed") {
+          let engineName = subject.QueryInterface(Ci.nsISearchEngine).name;
+          let Preferences =
+            Cu.import("resource://gre/modules/Preferences.jsm", {}).Preferences;
+          let pref = Preferences.get("browser.search.hiddenOneOffs");
+          let hiddenList = pref ? pref.split(",") : [];
+          hiddenList = hiddenList.filter(x => x !== engineName);
+          Preferences.set("browser.search.hiddenOneOffs",
+                          hiddenList.join(","));
         }
-        // Enforce that the search service's defaultEngine is always equal to
-        // its currentEngine. The search service will notify us any time either
-        // of them are changed (either by directly setting the relevant prefs,
-        // i.e. if add-ons try to change this directly, or if the
-        // nsIBrowserSearchService setters are called).
-        // No need to initialize the search service, since it's guaranteed to be
-        // initialized already when this notification fires.
-        let ss = Services.search;
-        if (ss.currentEngine.name == ss.defaultEngine.name)
-          return;
-        if (data == "engine-current")
-          ss.defaultEngine = ss.currentEngine;
-        else
-          ss.currentEngine = ss.defaultEngine;
-        recordDefaultSearchEngine();
-        break;
-      case "browser-search-service":
-        if (data != "init-complete")
-          return;
-        Services.obs.removeObserver(this, "browser-search-service");
-        this._syncSearchEngines();
-        recordDefaultSearchEngine();
         break;
       case "flash-plugin-hang":
         this._handleFlashHang();
-        break;
-      case "test-initialize-sanitizer":
-        this._sanitizer.onStartup();
         break;
       case "xpi-signature-changed":
         let disabledAddons = JSON.parse(data).disabled;
@@ -450,6 +412,9 @@ BrowserGlue.prototype = {
         break;
       case "autocomplete-did-enter-text":
         this._handleURLBarTelemetry(subject.QueryInterface(Ci.nsIAutoCompleteInput));
+        break;
+      case "test-initialize-sanitizer":
+        this._sanitizer.onStartup();
         break;
       case AddonWatcher.TOPIC_SLOW_ADDON_DETECTED:
         this._notifySlowAddon(data);
@@ -477,8 +442,8 @@ BrowserGlue.prototype = {
         action.type;
     }
     if (!actionType) {
-      let styles = controller.getStyleAt(idx).split(/\s+/);
-      let style = ["autofill", "tag", "bookmark"].find(s => styles.includes(s));
+      let styles = new Set(controller.getStyleAt(idx).split(/\s+/));
+      let style = ["autofill", "tag", "bookmark"].find(s => styles.has(s));
       actionType = style || "history";
     }
 
@@ -513,16 +478,6 @@ BrowserGlue.prototype = {
     }
   },
 
-  _syncSearchEngines: function () {
-    // Only do this if the search service is already initialized. This function
-    // gets called in finalUIStartup and from a browser-search-service observer,
-    // to catch both cases (search service initialization occurring before and
-    // after final-ui-startup)
-    if (Services.search.isInitialized) {
-      Services.search.defaultEngine = Services.search.currentEngine;
-    }
-  },
-
   // initialization (called on application startup)
   _init: function BG__init() {
     let os = Services.obs;
@@ -551,7 +506,6 @@ BrowserGlue.prototype = {
     os.addObserver(this, "handle-xul-text-link", false);
     os.addObserver(this, "profile-before-change", false);
     os.addObserver(this, "browser-search-engine-modified", false);
-    os.addObserver(this, "browser-search-service", false);
     os.addObserver(this, "restart-in-safe-mode", false);
     os.addObserver(this, "flash-plugin-hang", false);
     os.addObserver(this, "xpi-signature-changed", false);
@@ -613,10 +567,6 @@ BrowserGlue.prototype = {
     os.removeObserver(this, "handle-xul-text-link");
     os.removeObserver(this, "profile-before-change");
     os.removeObserver(this, "browser-search-engine-modified");
-    try {
-      os.removeObserver(this, "browser-search-service");
-      // may have already been removed by the observer
-    } catch (ex) {}
     os.removeObserver(this, "flash-plugin-hang");
     os.removeObserver(this, "xpi-signature-changed");
     os.removeObserver(this, "autocomplete-did-enter-text");
@@ -716,8 +666,6 @@ BrowserGlue.prototype = {
     this._migrateUI();
 
     this._setUpUserAgentOverrides();
-
-    this._syncSearchEngines();
 
     WebappManager.init();
     PageThumbs.init();
@@ -941,6 +889,19 @@ BrowserGlue.prototype = {
 
   // the first browser window has finished initializing
   _onFirstWindowLoaded: function BG__onFirstWindowLoaded(aWindow) {
+    // Initialize PdfJs when running in-process and remote. This only
+    // happens once since PdfJs registers global hooks. If the PdfJs
+    // extension is installed the init method below will be overridden
+    // leaving initialization to the extension.
+    // parent only: configure default prefs, set up pref observers, register
+    // pdf content handler, and initializes parent side message manager
+    // shim for privileged api access.
+    PdfJs.init(true);
+    // child only: similar to the call above for parent - register content
+    // handler and init message manager child shim for privileged api access.
+    // With older versions of the extension installed, this load will fail
+    // passively.
+    Services.ppmm.loadProcessScript("resource://pdf.js/pdfjschildbootstrap.js", true);
 
     if (AppConstants.NIGHTLY_BUILD) {
       // Registering Shumway bootstrap script the child processes.
@@ -1400,6 +1361,19 @@ BrowserGlue.prototype = {
         importBookmarks = true;
     } catch(ex) {}
 
+    // Support legacy bookmarks.html format for apps that depend on that format.
+    let autoExportHTML = false;
+    try {
+      autoExportHTML = Services.prefs.getBoolPref("browser.bookmarks.autoExportHTML");
+    } catch (ex) {} // Do not export.
+    if (autoExportHTML) {
+      // Sqlite.jsm and Places shutdown happen at profile-before-change, thus,
+      // to be on the safe side, this should run earlier.
+      AsyncShutdown.profileChangeTeardown.addBlocker(
+        "Places: export bookmarks.html",
+        () => BookmarkHTMLUtils.exportToFile(BookmarkHTMLUtils.defaultPath));
+    }
+
     Task.spawn(function* () {
       // Check if Safe Mode or the user has required to restore bookmarks from
       // default profile's bookmarks.html
@@ -1457,10 +1431,6 @@ BrowserGlue.prototype = {
         // An import operation is about to run.
         // Don't try to recreate smart bookmarks if autoExportHTML is true or
         // smart bookmarks are disabled.
-        var autoExportHTML = false;
-        try {
-          autoExportHTML = Services.prefs.getBoolPref("browser.bookmarks.autoExportHTML");
-        } catch(ex) {}
         let smartBookmarksVersion = 0;
         try {
           smartBookmarksVersion = Services.prefs.getIntPref("browser.places.smartBookmarksVersion");
@@ -1577,19 +1547,6 @@ BrowserGlue.prototype = {
       this._idleService.removeIdleObserver(this, this._bookmarksBackupIdleTime);
       delete this._bookmarksBackupIdleTime;
     }
-
-    // Support legacy bookmarks.html format for apps that depend on that format.
-    try {
-      if (Services.prefs.getBoolPref("browser.bookmarks.autoExportHTML")) {
-        // places-shutdown happens at profile-change-teardown, so here we
-        // can safely add a profile-before-change blocker.
-        AsyncShutdown.profileBeforeChange.addBlocker(
-          "Places: bookmarks.html",
-          () => BookmarkHTMLUtils.exportToFile(Services.dirsvc.get("BMarks", Ci.nsIFile))
-                                 .then(null, Cu.reportError)
-        );
-      }
-    } catch (ex) {} // Do not export.
   },
 
   /**
