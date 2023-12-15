@@ -1290,8 +1290,6 @@ pref("browser.defaultbrowser.notificationbar", false);
 // Telemetry settings.
 // Determines if Telemetry pings can be archived locally.
 pref("toolkit.telemetry.archive.enabled", true);
-// Whether we enable opt-out Telemetry for a sample of the release population.
-pref("toolkit.telemetry.optoutSample", true);
 
 //Arctic Fox standalone image background color
 pref("browser.display.standalone_images.background_color", "#2E3B41");
@@ -1356,6 +1354,12 @@ pref("status4evar.status.toolbar.maxLength", 0);
 
 pref("status4evar.status.popup.invertMirror", false);
 pref("status4evar.status.popup.mouseMirror", true);
+
+#ifdef NIGHTLY_BUILD
+pref("privacy.trackingprotection.ui.enabled", false);
+#else
+pref("privacy.trackingprotection.ui.enabled", false);
+#endif
 
 // Enable Contextual Identity Containers
 pref("privacy.userContext.enabled", false);
