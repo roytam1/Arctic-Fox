@@ -1006,7 +1006,7 @@ public:
                                            mozilla::StyleSheetHandle aSheet) = 0;
   virtual void RemoveAdditionalStyleSheet(additionalSheetType aType,
                                           nsIURI* sheetURI) = 0;
-  virtual mozilla::StyleSheetHandle FirstAdditionalAuthorSheet() = 0;
+  virtual mozilla::StyleSheetHandle GetFirstAdditionalAuthorSheet() = 0;
 
   /**
    * Get this document's CSSLoader.  This is guaranteed to not return null.
@@ -1187,11 +1187,6 @@ public:
    * top-level browser window out of full-screen mode.
    */
   virtual void RestorePreviousFullScreenState() = 0;
-
-  /**
-   * Returns true if this document is in full-screen mode.
-   */
-  virtual bool IsFullScreenDoc() = 0;
 
   /**
    * Returns true if this document is a fullscreen leaf document, i.e. it
@@ -2546,7 +2541,7 @@ public:
   virtual Element* GetFullscreenElement() = 0;
   bool MozFullScreen()
   {
-    return IsFullScreenDoc();
+    return !!GetFullscreenElement();
   }
   void ExitFullscreen();
   Element* GetMozPointerLockElement();

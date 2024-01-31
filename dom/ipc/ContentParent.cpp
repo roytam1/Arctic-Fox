@@ -261,6 +261,10 @@ using namespace mozilla::system;
 #include "mozilla/dom/GamepadMonitoring.h"
 #endif
 
+#ifdef XP_WIN
+#include "mozilla/widget/AudioSession.h"
+#endif
+
 #include "VRManagerParent.h"            // for VRManagerParent
 
 static NS_DEFINE_CID(kCClipboardCID, NS_CLIPBOARD_CID);
@@ -2538,7 +2542,7 @@ ContentParent::InitInternal(ProcessPriority aInitialPriority,
     // on demand.)
     bool useOffMainThreadCompositing = !!CompositorParent::CompositorLoop();
     if (useOffMainThreadCompositing) {
-      DebugOnly<bool> opened = PCompositor::Open(this);
+      DebugOnly<bool> opened = PCompositorBridge::Open(this);
       MOZ_ASSERT(opened);
 
       opened = PImageBridge::Open(this);
@@ -2608,6 +2612,16 @@ ContentParent::InitInternal(ProcessPriority aInitialPriority,
 #endif
   if (shouldSandbox && !SendSetProcessSandbox(brokerFd)) {
     KillHard("SandboxInitFailed");
+  }
+#endif
+#if defined(XP_WIN)
+  // Send the info needed to join the browser process's audio session.
+  nsID id;
+  nsString sessionName;
+  nsString iconPath;
+  if (NS_SUCCEEDED(mozilla::widget::GetAudioSessionData(id, sessionName,
+                                                        iconPath))) {
+    Unused << SendSetAudioSessionData(id, sessionName, iconPath);
   }
 #endif
 }
@@ -3328,9 +3342,9 @@ ContentParent::DeallocPAPZParent(PAPZParent* aActor)
   return true;
 }
 
-PCompositorParent*
-ContentParent::AllocPCompositorParent(mozilla::ipc::Transport* aTransport,
-                                      base::ProcessId aOtherProcess)
+PCompositorBridgeParent*
+ContentParent::AllocPCompositorBridgeParent(mozilla::ipc::Transport* aTransport,
+                                            base::ProcessId aOtherProcess)
 {
   return CompositorParent::Create(aTransport, aOtherProcess);
 }
