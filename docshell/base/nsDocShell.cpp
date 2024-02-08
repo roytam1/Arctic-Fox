@@ -3487,7 +3487,8 @@ nsDocShell::CanAccessItem(nsIDocShellTreeItem* aTargetItem,
     return false;
   }
 
-  if (targetDS->GetIsInBrowserElement() != accessingDS->GetIsInBrowserElement() ||
+  if (targetDS->GetIsInIsolatedMozBrowserElement() !=
+        accessingDS->GetIsInIsolatedMozBrowserElement() ||
       targetDS->GetAppId() != accessingDS->GetAppId()) {
     return false;
   }
@@ -13966,9 +13967,9 @@ nsDocShell::GetInheritedFrameType()
 }
 
 /* [infallible] */ NS_IMETHODIMP
-nsDocShell::GetIsInBrowserElement(bool* aIsInBrowserElement)
+nsDocShell::GetIsInIsolatedMozBrowserElement(bool* aIsInIsolatedMozBrowserElement)
 {
-  *aIsInBrowserElement = (GetInheritedFrameType() == eFrameTypeBrowser);
+  *aIsInIsolatedMozBrowserElement = (GetInheritedFrameType() == eFrameTypeBrowser);
   return NS_OK;
 }
 
@@ -14029,7 +14030,7 @@ nsDocShell::GetOriginAttributes()
   attrs.mUserContextId = mUserContextId;
 
   if (mFrameType == eFrameTypeBrowser) {
-    attrs.mInBrowser = true;
+    attrs.mInIsolatedMozBrowser = true;
   }
 
   return attrs;
@@ -14192,11 +14193,6 @@ nsDocShell::ShouldPrepareForIntercept(nsIURI* aURI, bool aIsNonSubresourceReques
                                       bool* aShouldIntercept)
 {
   *aShouldIntercept = false;
-  // Preffed off.
-  if (!nsContentUtils::ServiceWorkerInterceptionEnabled()) {
-    return NS_OK;
-  }
-
   // No in private browsing
   if (mInPrivateBrowsing) {
     return NS_OK;
