@@ -2561,7 +2561,7 @@ CanvasRenderingContext2D::ClearRect(double aX, double aY, double aW,
                                     double aH)
 {
   // Do not allow zeros - it's a no-op at that point per spec.
-  if (!mTarget || !ValidateRect(aX, aY, aW, aH, false)) {
+  if (!ValidateRect(aX, aY, aW, aH, false)) {
     return;
   }
 
