@@ -324,7 +324,7 @@ if test -n "$gonkdir" ; then
     esac
     CPPFLAGS="-DANDROID $TARGET_C_INCLUDES -I$gonkdir/system -I$gonkdir/system/core/include -isystem $gonkdir/bionic -I$gonkdir/hardware/libhardware/include -I$gonkdir/external/valgrind/fxos-include $GONK_INCLUDES $CPPFLAGS"
     CFLAGS="-mandroid -fno-short-enums -fno-exceptions $CFLAGS"
-    CXXFLAGS="-mandroid -fno-short-enums -fno-exceptions -Wno-psabi $CXXFLAGS $STLPORT_CPPFLAGS"
+    CXXFLAGS="-mandroid -fno-short-enums -fno-exceptions $CXXFLAGS $STLPORT_CPPFLAGS"
     dnl Add -llog by default, since we use it all over the place.
     LIBS="$LIBS -llog"
 
@@ -824,7 +824,6 @@ fi
 AC_SUBST(NSINSTALL_BIN)
 
 MOZ_PATH_PROG(DOXYGEN, doxygen, :)
-MOZ_PATH_PROG(AUTOCONF, autoconf, :)
 MOZ_PATH_PROGS(UNZIP, unzip)
 if test -z "$UNZIP" -o "$UNZIP" = ":"; then
     AC_MSG_ERROR([unzip not found in \$PATH])
@@ -1554,6 +1553,18 @@ dnl ========================================================
 dnl Special rust checks
 dnl ========================================================
 
+if test -n "$MOZ_RUST"; then
+  AC_MSG_CHECKING([rustc target sse2 support])
+  case "$OS_ARCH:$CPU_ARCH" in
+    WINNT:x86)
+      RUSTFLAGS="${RUSTFLAGS} -C target-feature=-sse2"
+      AC_MSG_RESULT([no])
+      ;;
+    *)
+      AC_MSG_RESULT([ok])
+  esac
+fi
+
 if test -n "$MACOSX_DEPLOYMENT_TARGET" -a -n "$MOZ_RUST"; then
   AC_MSG_CHECKING([if we're targeting 32-bit])
   if test -z "$HAVE_64BIT_BUILD"; then
@@ -2109,14 +2120,14 @@ ia64*-hpux*)
         _USE_CPP_INCLUDE_FLAG=1
         _DEFINES_CFLAGS='-FI $(topobjdir)/mozilla-config.h -DMOZILLA_CLIENT'
         _DEFINES_CXXFLAGS='-FI $(topobjdir)/mozilla-config.h -DMOZILLA_CLIENT'
-        SSE_FLAGS="-arch:SSE"
-        SSE2_FLAGS="-arch:SSE2"
         CFLAGS="$CFLAGS -W3 -Gy"
         CXXFLAGS="$CXXFLAGS -W3 -Gy"
         if test "$CPU_ARCH" = "x86"; then
             dnl VS2012+ defaults to -arch:SSE2.
             CFLAGS="$CFLAGS -arch:IA32"
             CXXFLAGS="$CXXFLAGS -arch:IA32"
+            SSE_FLAGS="-arch:SSE"
+            SSE2_FLAGS="-arch:SSE2"
         fi
         dnl VS2013+ requires -FS when parallel building by make -jN.
         dnl If nothing, compiler sometimes causes C1041 error.
@@ -2220,7 +2231,9 @@ ia64*-hpux*)
         fi
         dnl For profile-guided optimization
         PROFILE_GEN_CFLAGS="-GL"
-        PROFILE_GEN_LDFLAGS="-LTCG:PGINSTRUMENT"
+        num_cores=$($PYTHON -c 'import multiprocessing; print(min(8,multiprocessing.cpu_count()))')
+        cgthreads="-CGTHREADS:${num_cores}"
+        PROFILE_GEN_LDFLAGS="-LTCG:PGINSTRUMENT -PogoSafeMode $cgthreads"
         dnl XXX: PGO builds can fail with warnings treated as errors,
         dnl specifically "no profile data available" appears to be
         dnl treated as an error sometimes. This might be a consequence
@@ -2231,7 +2244,7 @@ ia64*-hpux*)
         PROFILE_USE_CFLAGS="-GL -wd4624 -wd4952"
         dnl XXX: should be -LTCG:PGOPTIMIZE, but that fails on libxul.
         dnl Probably also a compiler bug, but what can you do?
-        PROFILE_USE_LDFLAGS="-LTCG:PGUPDATE"
+        PROFILE_USE_LDFLAGS="-LTCG:PGUPDATE $cgthreads"
         LDFLAGS="$LDFLAGS -DYNAMICBASE"
         RCFLAGS="-nologo"
         if test "$_CC_MAJOR_VERSION" = "18" -a "$_CC_BUILD_VERSION" = "31101"; then
@@ -7433,6 +7446,27 @@ fi
 AC_SUBST(DISABLE_MOZ_RIL_GEOLOC)
 
 dnl ========================================================
+dnl = Use the Servo Style System for Gecko.
+dnl =
+dnl = This linkage setup is temporary, and for experimental
+dnl = purposes. We will vendor servo and integrate the build
+dnl = systems before actually shipping anything.
+dnl ========================================================
+MOZ_ARG_WITH_STRING(servo,
+[  --with-servo=SERVO_TARGET_DIR
+                Absolute path of the target directory where libgeckoservo can
+                be found. This is generally servo_src_dir/target/release.
+                Passing this flag enables experimental integration with the
+                servo style system],
+  SERVO_TARGET_DIR=$withval,
+  SERVO_TARGET_DIR=)
+if test -n "$SERVO_TARGET_DIR"; then
+   MOZ_SERVO_LIBS="-L${SERVO_TARGET_DIR} -lgeckoservo"
+   AC_DEFINE(MOZ_STYLO)
+   AC_SUBST_LIST(MOZ_SERVO_LIBS)
+fi
+
+dnl ========================================================
 dnl =
 dnl = Misc. Options
 dnl =
@@ -8611,6 +8645,8 @@ AC_SUBST(HOST_RANLIB)
 AC_SUBST(HOST_BIN_SUFFIX)
 AC_SUBST(HOST_OS_ARCH)
 
+AC_SUBST(RUSTFLAGS)
+
 AC_SUBST(TARGET_CPU)
 AC_SUBST(TARGET_VENDOR)
 AC_SUBST(TARGET_OS)
@@ -9025,6 +9061,7 @@ export CPPFLAGS
 export CFLAGS
 export CXXFLAGS
 export LDFLAGS
+export RUSTFLAGS
 export HOST_CC
 export HOST_CXX
 export HOST_CFLAGS
