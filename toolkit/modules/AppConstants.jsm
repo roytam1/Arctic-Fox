@@ -234,8 +234,8 @@ this.AppConstants = Object.freeze({
   false,
 #endif
 
-  MOZ_NATIVE_NSS:
-#ifdef MOZ_NATIVE_NSS
+  MOZ_SYSTEM_NSS:
+#ifdef MOZ_SYSTEM_NSS
   true,
 #else
   false,
@@ -283,6 +283,7 @@ this.AppConstants = Object.freeze({
   MOZ_APP_VERSION: "@MOZ_APP_VERSION@",
   MOZ_APP_VERSION_DISPLAY: "@MOZ_APP_VERSION_DISPLAY@",
   MOZ_BUILD_APP: "@MOZ_BUILD_APP@",
+  MOZ_MACBUNDLE_NAME: "@MOZ_MACBUNDLE_NAME@",
   MOZ_UPDATE_CHANNEL: "@MOZ_UPDATE_CHANNEL@",
   INSTALL_LOCALE: "@AB_CD@",
   MOZ_WIDGET_TOOLKIT: "@MOZ_WIDGET_TOOLKIT@",
