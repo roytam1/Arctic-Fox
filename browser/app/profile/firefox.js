@@ -1232,6 +1232,15 @@ pref("browser.newtabpage.directory.ping", "https://tiles.up.mozillalabs.com/v2/l
 // activates the remote-hosted newtab page
 pref("browser.newtabpage.remote", false);
 
+// content-signature tests for remote newtab
+pref("browser.newtabpage.remote.content-signing-test", false);
+
+// verification keys for remote-hosted newtab page
+pref("browser.newtabpage.remote.keys", "");
+
+// Toggles endpoints allowed for remote newtab communications
+pref("browser.newtabpage.remote.mode", "production");
+
 // Enable the DOM fullscreen API.
 pref("full-screen-api.enabled", true);
 
