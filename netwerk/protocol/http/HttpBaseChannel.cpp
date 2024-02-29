@@ -963,6 +963,17 @@ HttpBaseChannel::DoApplyContentConversions(nsIStreamListener* aNextListener,
       }
 
       LOG(("converter removed '%s' content-encoding\n", val));
+      if (gHttpHandler->IsTelemetryEnabled()) {
+        int mode = 0;
+        if (from.Equals("gzip") || from.Equals("x-gzip")) {
+          mode = 1;
+        } else if (from.Equals("deflate") || from.Equals("x-deflate")) {
+          mode = 2;
+        } else if (from.Equals("br")) {
+          mode = 3;
+        }
+        Telemetry::Accumulate(Telemetry::HTTP_CONTENT_ENCODING, mode);
+      }
       nextListener = converter;
     }
     else {
@@ -1497,6 +1508,12 @@ HttpBaseChannel::SetReferrerWithPolicy(nsIURI *referrer,
     rv = clone->GetAsciiSpec(spec);
     if (NS_FAILED(rv)) return rv;
     break;
+  }
+
+  // If any user trimming policy is in effect, use the trimmed URI.
+  if (userReferrerTrimmingPolicy) {
+    rv = NS_NewURI(getter_AddRefs(clone), spec);
+    if (NS_FAILED(rv)) return rv;
   }
 
   // finally, remember the referrer URI and set the Referer header.
