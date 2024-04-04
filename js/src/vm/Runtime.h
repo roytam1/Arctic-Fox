@@ -712,7 +712,7 @@ struct JSRuntime : public JS::shadow::Runtime,
     /*
      * Value of asyncCause to be attached to asyncStackForNewActivations.
      */
-    JS::PersistentRooted<JSString*> asyncCauseForNewActivations;
+    const char* asyncCauseForNewActivations;
 
     /*
      * True if the async call was explicitly requested, e.g. via
@@ -907,6 +907,9 @@ struct JSRuntime : public JS::shadow::Runtime,
 
     JSInterruptCallback interruptCallback;
 
+    JSEnqueuePromiseJobCallback enqueuePromiseJobCallback;
+    void* enqueuePromiseJobCallbackData;
+
 #ifdef DEBUG
     void assertCanLock(js::RuntimeLock which);
 #else
@@ -1014,6 +1017,8 @@ struct JSRuntime : public JS::shadow::Runtime,
     js::InterpreterStack& interpreterStack() {
         return interpreterStack_;
     }
+
+    bool enqueuePromiseJob(JSContext* cx, js::HandleFunction job);
 
     //-------------------------------------------------------------------------
     // Self-hosting support
