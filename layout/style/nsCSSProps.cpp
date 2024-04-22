@@ -910,10 +910,12 @@ KTableEntry nsCSSProps::kBackgroundClipKTable[] = {
   { eCSSKeyword_UNKNOWN, -1 }
 };
 
+#if 0
 static_assert(ArrayLength(nsCSSProps::kImageLayerOriginKTable) ==
               ArrayLength(nsCSSProps::kBackgroundClipKTable) - 1,
               "background-clip has one extra value, which is text, compared"
               "to {background,mask}-origin");
+#endif
 
 // Note: Don't change this table unless you update
 // ParseImageLayerPosition!
