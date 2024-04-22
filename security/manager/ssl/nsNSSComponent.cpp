@@ -10,6 +10,7 @@
 
 #include "ExtendedValidation.h"
 #include "NSSCertDBTrustDomain.h"
+#include "ScopedNSSTypes.h"
 #include "SharedSSLState.h"
 #include "cert.h"
 #include "certdb.h"
@@ -19,7 +20,6 @@
 #include "mozilla/StaticPtr.h"
 #include "mozilla/SyncRunnable.h"
 #include "mozilla/Telemetry.h"
-#include "mozilla/UniquePtr.h"
 #include "nsAppDirectoryServiceDefs.h"
 #include "nsCRT.h"
 #include "nsCertVerificationThread.h"
@@ -60,9 +60,9 @@
 #include "nsILocalFileWin.h"
 
 #include "windows.h" // this needs to be before the following includes
-#include "Lmcons.h"
-#include "Sddl.h"
-#include "Wincrypt.h"
+#include "lmcons.h"
+#include "sddl.h"
+#include "wincrypt.h"
 #include "nsIWindowsRegKey.h"
 #endif
 
@@ -261,7 +261,6 @@ nsNSSComponent::nsNSSComponent()
 
   NS_ASSERTION( (0 == mInstanceCount), "nsNSSComponent is a singleton, but instantiated multiple times!");
   ++mInstanceCount;
-  mShutdownObjectList = nsNSSShutDownList::construct();
 }
 
 void
@@ -305,7 +304,7 @@ nsNSSComponent::~nsNSSComponent()
   SharedSSLState::GlobalCleanup();
   RememberCertErrorsTable::Cleanup();
   --mInstanceCount;
-  delete mShutdownObjectList;
+  nsNSSShutDownList::shutdown();
 
   // We are being freed, drop the haveLoaded flag to re-enable
   // potential nss initialization later.
@@ -685,8 +684,7 @@ MaybeImportFamilySafetyRoot(PCCERT_CONTEXT certificate,
     return NS_ERROR_FAILURE;
   }
   // Looking for a certificate with the common name 'Microsoft Family Safety'
-  UniquePtr<char, void(&)(void*)> subjectName(
-    CERT_GetCommonName(&nssCertificate->subject), PORT_Free);
+  UniquePORTString subjectName(CERT_GetCommonName(&nssCertificate->subject));
   MOZ_LOG(gPIPNSSLog, LogLevel::Debug,
           ("subject name is '%s'", subjectName.get()));
   if (nsCRT::strcmp(subjectName.get(), "Microsoft Family Safety") == 0) {
@@ -704,7 +702,7 @@ MaybeImportFamilySafetyRoot(PCCERT_CONTEXT certificate,
       return NS_ERROR_FAILURE;
     }
     nsAutoCString dbKey;
-    nsresult rv = nsNSSCertificate::GetDbKey(nssCertificate.get(), dbKey);
+    nsresult rv = nsNSSCertificate::GetDbKey(nssCertificate, dbKey);
     if (NS_FAILED(rv)) {
       MOZ_LOG(gPIPNSSLog, LogLevel::Debug, ("GetDbKey failed"));
       return rv;
@@ -1382,6 +1380,21 @@ void nsNSSComponent::setValidationOptions(bool isInitialSetting,
       break;
     default:
       sha1Mode = CertVerifier::SHA1Mode::Allowed;
+      break;
+  }
+
+  BRNameMatchingPolicy::Mode nameMatchingMode =
+    static_cast<BRNameMatchingPolicy::Mode>
+      (Preferences::GetInt("security.pki.name_matching_mode",
+                           static_cast<int32_t>(BRNameMatchingPolicy::Mode::DoNotEnforce)));
+  switch (nameMatchingMode) {
+    case BRNameMatchingPolicy::Mode::Enforce:
+    case BRNameMatchingPolicy::Mode::EnforceAfter23August2016:
+    case BRNameMatchingPolicy::Mode::DoNotEnforce:
+      break;
+    default:
+      nameMatchingMode = BRNameMatchingPolicy::Mode::DoNotEnforce;
+      break;
   }
 
   CertVerifier::OcspDownloadConfig odc;
@@ -1393,7 +1406,8 @@ void nsNSSComponent::setValidationOptions(bool isInitialSetting,
                                  lock);
   mDefaultCertVerifier = new SharedCertVerifier(odc, osc, ogc,
                                                 certShortLifetimeInDays,
-                                                pinningMode, sha1Mode);
+                                                pinningMode, sha1Mode,
+                                                nameMatchingMode);
 }
 
 // Enable the TLS versions given in the prefs, defaulting to TLS 1.0 (min) and
@@ -1633,6 +1647,14 @@ nsNSSComponent::InitializeNSS()
     return NS_ERROR_FAILURE;
   }
 
+  // Initialize the cert override service
+  nsCOMPtr<nsICertOverrideService> coService =
+    do_GetService(NS_CERTOVERRIDE_CONTRACTID);
+  if (!coService) {
+    MOZ_LOG(gPIPNSSLog, LogLevel::Debug, ("Cannot initialize cert override service\n"));
+    return NS_ERROR_FAILURE;
+  }
+
   if (PK11_IsFIPS()) {
     Telemetry::Accumulate(Telemetry::FIPS_ENABLED, true);
   }
@@ -1666,7 +1688,7 @@ nsNSSComponent::ShutdownNSS()
     CleanupIdentityInfo();
 #endif
     MOZ_LOG(gPIPNSSLog, LogLevel::Debug, ("evaporating psm resources\n"));
-    mShutdownObjectList->evaporateAllNSSResources();
+    nsNSSShutDownList::evaporateAllNSSResources();
     EnsureNSSInitialized(nssShutdown);
     if (SECSuccess != ::NSS_Shutdown()) {
       MOZ_LOG(gPIPNSSLog, LogLevel::Error, ("NSS SHUTDOWN FAILURE\n"));
@@ -1686,12 +1708,6 @@ nsNSSComponent::Init()
   nsresult rv = NS_OK;
 
   MOZ_LOG(gPIPNSSLog, LogLevel::Debug, ("Beginning NSS initialization\n"));
-
-  if (!mShutdownObjectList)
-  {
-    MOZ_LOG(gPIPNSSLog, LogLevel::Debug, ("NSS init, out of memory in constructor\n"));
-    return NS_ERROR_OUT_OF_MEMORY;
-  }
 
   rv = InitializePIPNSSBundle();
   if (NS_FAILED(rv)) {
@@ -1832,7 +1848,8 @@ nsNSSComponent::Observe(nsISupports* aSubject, const char* aTopic,
                prefName.EqualsLiteral("security.ssl.enable_ocsp_stapling") ||
                prefName.EqualsLiteral("security.ssl.enable_ocsp_must_staple") ||
                prefName.EqualsLiteral("security.cert_pinning.enforcement_level") ||
-               prefName.EqualsLiteral("security.pki.sha1_enforcement_level")) {
+               prefName.EqualsLiteral("security.pki.sha1_enforcement_level") ||
+               prefName.EqualsLiteral("security.pki.name_matching_mode")) {
       MutexAutoLock lock(mutex);
       setValidationOptions(false, lock);
 #ifdef DEBUG
@@ -1842,6 +1859,10 @@ nsNSSComponent::Observe(nsISupports* aSubject, const char* aTopic,
 #endif // DEBUG
     } else if (prefName.Equals(kFamilySafetyModePref)) {
       MaybeEnableFamilySafetyCompatibility();
+    } else if (prefName.EqualsLiteral("security.content.signature.root_hash")) {
+      MutexAutoLock lock(mutex);
+      mContentSigningRootHash =
+        Preferences::GetString("security.content.signature.root_hash");
     } else {
       clearSessionCache = false;
     }
@@ -1911,7 +1932,7 @@ nsresult nsNSSComponent::LogoutAuthenticatedPK11()
 
   nsClientAuthRememberService::ClearAllRememberedDecisions();
 
-  return mShutdownObjectList->doPK11Logout();
+  return nsNSSShutDownList::doPK11Logout();
 }
 
 nsresult
@@ -1993,6 +2014,32 @@ nsNSSComponent::IsCertTestBuiltInRoot(CERTCertificate* cert, bool& result)
   return NS_OK;
 }
 #endif // DEBUG
+
+NS_IMETHODIMP
+nsNSSComponent::IsCertContentSigningRoot(CERTCertificate* cert, bool& result)
+{
+  MutexAutoLock lock(mutex);
+  MOZ_ASSERT(mNSSInitialized);
+
+  result = false;
+
+  if (mContentSigningRootHash.IsEmpty()) {
+    return NS_OK;
+  }
+
+  RefPtr<nsNSSCertificate> nsc = nsNSSCertificate::Create(cert);
+  if (!nsc) {
+    return NS_ERROR_FAILURE;
+  }
+  nsAutoString certHash;
+  nsresult rv = nsc->GetSha256Fingerprint(certHash);
+  if (NS_FAILED(rv)) {
+    return rv;
+  }
+
+  result = mContentSigningRootHash.Equals(certHash);
+  return NS_OK;
+}
 
 SharedCertVerifier::~SharedCertVerifier() { }
 

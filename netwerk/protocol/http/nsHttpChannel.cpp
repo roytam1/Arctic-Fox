@@ -77,6 +77,7 @@
 #include "nsISocketTransport.h"
 #include "nsIStreamConverterService.h"
 #include "nsISiteSecurityService.h"
+#include "nsString.h"
 #include "nsCRT.h"
 #include "nsPerformance.h"
 #include "CacheObserver.h"
@@ -94,6 +95,7 @@
 #include "nsICompressConvStats.h"
 #include "nsCORSListenerProxy.h"
 #include "nsISocketProvider.h"
+#include "mozilla/net/Predictor.h"
 
 namespace mozilla { namespace net {
 
@@ -316,6 +318,21 @@ nsHttpChannel::Connect()
     nsresult rv;
 
     LOG(("nsHttpChannel::Connect [this=%p]\n", this));
+
+    // Note that we are only setting the "Upgrade-Insecure-Requests" request
+    // header for *all* navigational requests instead of all requests as
+    // defined in the spec, see:
+    // https://www.w3.org/TR/upgrade-insecure-requests/#preference
+    nsContentPolicyType type = mLoadInfo ?
+                               mLoadInfo->GetExternalContentPolicyType() :
+                               nsIContentPolicy::TYPE_OTHER;
+
+    if (type == nsIContentPolicy::TYPE_DOCUMENT ||
+        type == nsIContentPolicy::TYPE_SUBDOCUMENT) {
+        rv = SetRequestHeader(NS_LITERAL_CSTRING("Upgrade-Insecure-Requests"),
+                              NS_LITERAL_CSTRING("1"), false);
+        NS_ENSURE_SUCCESS(rv, rv);
+    }
 
     bool isHttps = false;
     rv = mURI->SchemeIs("https", &isHttps);
@@ -1678,6 +1695,9 @@ nsHttpChannel::ProcessResponse()
 
     uint32_t httpStatus = mResponseHead->Status();
 
+    LOG(("nsHttpChannel::ProcessResponse [this=%p httpStatus=%u]\n",
+        this, httpStatus));
+
     // do some telemetry
     if (gHttpHandler->IsTelemetryEnabled()) {
         // Gather data on whether the transaction and page (if this is
@@ -1695,8 +1715,24 @@ nsHttpChannel::ProcessResponse()
         Telemetry::Accumulate(Telemetry::HTTP_SAW_QUIC_ALT_PROTOCOL, saw_quic);
     }
 
-    LOG(("nsHttpChannel::ProcessResponse [this=%p httpStatus=%u]\n",
-        this, httpStatus));
+    // Let the predictor know whether this was a cacheable response or not so
+    // that it knows whether or not to possibly prefetch this resource in the
+    // future.
+    // We use GetReferringPage because mReferrer may not be set at all, or may
+    // not be a full URI (HttpBaseChannel::SetReferrer has the gorey details).
+    // If that's null, though, we'll fall back to mReferrer just in case (this
+    // is especially useful in xpcshell tests, where we don't have an actual
+    // pageload to get a referrer from).
+    nsCOMPtr<nsIURI> referrer = GetReferringPage();
+    if (!referrer) {
+        referrer = mReferrer;
+    }
+    if (referrer) {
+        nsCOMPtr<nsILoadContextInfo> lci = GetLoadContextInfo(this);
+        mozilla::net::Predictor::UpdateCacheability(mReferrer, mURI, httpStatus,
+                                                    mRequestHead, mResponseHead,
+                                                    lci);
+    }
 
     if (mTransaction->ProxyConnectFailed()) {
         // Only allow 407 (authentication required) to continue
@@ -1888,18 +1924,33 @@ nsHttpChannel::ContinueProcessResponse1(nsresult rv)
         break;
     }
 
-    CacheDisposition cacheDisposition;
-    if (!mDidReval)
-        cacheDisposition = kCacheMissed;
-    else if (successfulReval)
-        cacheDisposition = kCacheHitViaReval;
-    else
-        cacheDisposition = kCacheMissedViaReval;
+    if (gHttpHandler->IsTelemetryEnabled()) {
+        CacheDisposition cacheDisposition;
+        if (!mDidReval) {
+            cacheDisposition = kCacheMissed;
+        } else if (successfulReval) {
+            cacheDisposition = kCacheHitViaReval;
+        } else {
+            cacheDisposition = kCacheMissedViaReval;
+        }
+        AccumulateCacheHitTelemetry(cacheDisposition);
 
-    AccumulateCacheHitTelemetry(cacheDisposition);
-    Telemetry::Accumulate(Telemetry::HTTP_RESPONSE_VERSION,
-                          mResponseHead->Version());
+        Telemetry::Accumulate(Telemetry::HTTP_RESPONSE_VERSION,
+                              mResponseHead->Version());
 
+        if (mResponseHead->Version() == NS_HTTP_VERSION_0_9) {
+            // DefaultPortTopLevel = 0, DefaultPortSubResource = 1,
+            // NonDefaultPortTopLevel = 2, NonDefaultPortSubResource = 3
+            uint32_t v09Info = 0;
+            if (!(mLoadFlags & LOAD_INITIAL_DOCUMENT_URI)) {
+                v09Info += 1;
+            }
+            if (mConnectionInfo->OriginPort() != mConnectionInfo->DefaultPort()) {
+                v09Info += 2;
+            }
+            Telemetry::Accumulate(Telemetry::HTTP_09_INFO, v09Info);
+        }
+    }
     return rv;
 }
 
@@ -2250,7 +2301,8 @@ nsHttpChannel::OpenRedirectChannel(nsresult rv)
 {
     AutoRedirectVetoNotifier notifier(this);
 
-    // Make sure to do this _after_ calling OnChannelRedirect
+    // Make sure to do this after we received redirect veto answer,
+    // i.e. after all sinks had been notified
     mRedirectChannel->SetOriginalURI(mOriginalURI);
 
     // And now, notify observers the deprecated way
@@ -2330,7 +2382,8 @@ nsHttpChannel::ContinueDoReplaceWithProxy(nsresult rv)
 
     NS_PRECONDITION(mRedirectChannel, "No redirect channel?");
 
-    // Make sure to do this _after_ calling OnChannelRedirect
+    // Make sure to do this after we received redirect veto answer,
+    // i.e. after all sinks had been notified
     mRedirectChannel->SetOriginalURI(mOriginalURI);
 
     // open new channel
@@ -2591,12 +2644,13 @@ nsHttpChannel::IsResumable(int64_t partialLen, int64_t contentLength,
                            bool ignoreMissingPartialLen) const
 {
     bool hasContentEncoding =
-        mCachedResponseHead->PeekHeader(nsHttp::Content_Encoding)
-        != nullptr;
+        (mCachedResponseHead->PeekHeader(nsHttp::Content_Encoding) != nullptr);
+    const char *etag = mCachedResponseHead->PeekHeader(nsHttp::ETag);
+    bool hasWeakEtag = etag && !strncmp(etag, "W/", 2);
 
     return (partialLen < contentLength) &&
            (partialLen > 0 || ignoreMissingPartialLen) &&
-           !hasContentEncoding &&
+           !hasContentEncoding && !hasWeakEtag &&
            mCachedResponseHead->IsResumable() &&
            !mCustomConditionalRequest &&
            !mCachedResponseHead->NoStore();
@@ -2997,7 +3051,8 @@ nsHttpChannel::ContinueProcessFallback(nsresult rv)
 
     NS_PRECONDITION(mRedirectChannel, "No redirect channel?");
 
-    // Make sure to do this _after_ calling OnChannelRedirect
+    // Make sure to do this after we received redirect veto answer,
+    // i.e. after all sinks had been notified
     mRedirectChannel->SetOriginalURI(mOriginalURI);
 
     if (mLoadInfo && mLoadInfo->GetEnforceSecurity()) {
@@ -3133,7 +3188,7 @@ nsHttpChannel::OpenCacheEntry(bool isHttps)
     uint32_t cacheEntryOpenFlags;
     bool offline = gIOService->IsOffline() || appOffline;
     if (offline || (mLoadFlags & INHIBIT_CACHING)) {
-        if (BYPASS_LOCAL_CACHE(mLoadFlags) && !offline) {
+        if (BYPASS_LOCAL_CACHE(mLoadFlags) && !offline && !PossiblyIntercepted()) {
             goto bypassCacheEntryOpen;
         }
         cacheEntryOpenFlags = nsICacheStorage::OPEN_READONLY;
@@ -3455,10 +3510,16 @@ nsHttpChannel::OnCacheEntryCheck(nsICacheEntry* entry, nsIApplicationCache* appC
         canAddImsHeader = false;
         doValidation = true;
     }
-    // Check isForcedValid to see if it is possible to skip validation
+    // Check isForcedValid to see if it is possible to skip validation.
+    // Don't skip validation if we have serious reason to believe that this
+    // content is invalid (it's expired).
     // See netwerk/cache2/nsICacheEntry.idl for details
-    else if (isForcedValid) {
+    else if (isForcedValid &&
+             (!mCachedResponseHead->ExpiresInPast() ||
+              !mCachedResponseHead->MustValidateIfExpired())) {
         LOG(("NOT validating based on isForcedValid being true.\n"));
+        Telemetry::AutoCounter<Telemetry::PREDICTOR_TOTAL_PREFETCHES_USED> used;
+        ++used;
         doValidation = false;
     }
     // If the LOAD_FROM_CACHE flag is set, any cached data can simply be used
@@ -3603,12 +3664,14 @@ nsHttpChannel::OnCacheEntryCheck(nsICacheEntry* entry, nsIApplicationCache* appC
         // expect it to be cached.  (we only keep it in our cache for the
         // purposes of back/forward, etc.)
         //
-        // the request method MUST be either GET or HEAD (see bug 175641).
+        // the request method MUST be either GET or HEAD (see bug 175641) and
+        // the cached response code must be < 400
         //
         // do not override conditional headers when consumer has defined its own
         if (!mCachedResponseHead->NoStore() &&
             (mRequestHead.IsGet() || mRequestHead.IsHead()) &&
-             !mCustomConditionalRequest) {
+            !mCustomConditionalRequest &&
+            (mCachedResponseHead->Status() < 400)) {
 
             if (mConcurentCacheAccess) {
                 // In case of concurrent read and also validation request we
@@ -4951,7 +5014,8 @@ nsHttpChannel::ContinueProcessRedirection(nsresult rv)
 
     NS_PRECONDITION(mRedirectChannel, "No redirect channel?");
 
-    // Make sure to do this _after_ calling OnChannelRedirect
+    // Make sure to do this after we received redirect veto answer,
+    // i.e. after all sinks had been notified
     mRedirectChannel->SetOriginalURI(mOriginalURI);
 
     // And now, the deprecated way
@@ -5176,6 +5240,8 @@ nsHttpChannel::AsyncOpen(nsIStreamListener *listener, nsISupports *context)
                "security flags in loadInfo but asyncOpen2() not called");
 
     LOG(("nsHttpChannel::AsyncOpen [this=%p]\n", this));
+
+    NS_CompareLoadInfoAndLoadContext(this);
 
     NS_ENSURE_ARG_POINTER(listener);
     NS_ENSURE_TRUE(!mIsPending, NS_ERROR_IN_PROGRESS);
@@ -6242,7 +6308,10 @@ nsHttpChannel::OnStopRequest(nsIRequest *request, nsISupports *ctxt, nsresult st
 
     if (mListener) {
         LOG(("  calling OnStopRequest\n"));
+        MOZ_ASSERT(!mOnStopRequestCalled,
+                   "We should not call OnStopRequest twice");
         mListener->OnStopRequest(this, mListenerContext, status);
+        mOnStopRequestCalled = true;
     }
 
     CloseCacheEntry(!contentComplete);
@@ -6727,6 +6796,26 @@ nsHttpChannel::SetPin(bool aPin)
     ENSURE_CALLED_BEFORE_CONNECT();
 
     mPinCacheContent = aPin;
+    return NS_OK;
+}
+
+NS_IMETHODIMP
+nsHttpChannel::ForceCacheEntryValidFor(uint32_t aSecondsToTheFuture)
+{
+    if (!mCacheEntry) {
+        LOG(("nsHttpChannel::ForceCacheEntryValidFor found no cache entry "
+             "for this channel [this=%p].", this));
+    } else {
+        mCacheEntry->ForceValidFor(aSecondsToTheFuture);
+
+        nsAutoCString key;
+        mCacheEntry->GetKey(key);
+
+        LOG(("nsHttpChannel::ForceCacheEntryValidFor successfully forced valid "
+             "entry with key %s for %d seconds. [this=%p]", ToNewCString(key),
+             aSecondsToTheFuture, this));
+    }
+
     return NS_OK;
 }
 
