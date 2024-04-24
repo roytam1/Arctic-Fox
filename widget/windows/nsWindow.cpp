@@ -5228,7 +5228,7 @@ nsWindow::ProcessMessage(UINT msg, WPARAM& wParam, LPARAM& lParam,
         WidgetMouseEvent event(true, eMouseHitTest, this,
                                WidgetMouseEvent::eReal,
                                WidgetMouseEvent::eNormal);
-        event.refPoint = LayoutDeviceIntPoint(GET_X_LPARAM(pos), GET_Y_LPARAM(pos));
+        event.mRefPoint = LayoutDeviceIntPoint(GET_X_LPARAM(pos), GET_Y_LPARAM(pos));
         event.inputSource = MOUSE_INPUT_SOURCE();
         event.mFlags.mOnlyChromeDispatch = true;
         if (DispatchWindowEvent(&event)) {
@@ -5965,7 +5965,7 @@ nsWindow::ClientMarginHitTestPoint(int32_t mx, int32_t my)
       WidgetMouseEvent event(true, eMouseHitTest, this,
                              WidgetMouseEvent::eReal,
                              WidgetMouseEvent::eNormal);
-      event.refPoint = LayoutDeviceIntPoint(pt.x, pt.y);
+      event.mRefPoint = LayoutDeviceIntPoint(pt.x, pt.y);
       event.inputSource = MOUSE_INPUT_SOURCE();
       event.mFlags.mOnlyChromeDispatch = true;
       bool result = ConvertStatus(DispatchInputEvent(&event));
