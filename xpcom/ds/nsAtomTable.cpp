@@ -464,13 +464,6 @@ AtomImpl::ToUTF8String(nsACString& aBuf)
   return NS_OK;
 }
 
-NS_IMETHODIMP_(bool)
-AtomImpl::EqualsUTF8(const nsACString& aString)
-{
-  return CompareUTF8toUTF16(aString,
-                            nsDependentString(mString, mLength)) == 0;
-}
-
 NS_IMETHODIMP
 AtomImpl::ScriptableEquals(const nsAString& aString, bool* aResult)
 {
@@ -612,13 +605,13 @@ RegisterStaticAtoms(const nsStaticAtom* aAtoms, uint32_t aAtomCount)
 }
 
 already_AddRefed<nsIAtom>
-NS_NewAtom(const char* aUTF8String)
+NS_Atomize(const char* aUTF8String)
 {
-  return NS_NewAtom(nsDependentCString(aUTF8String));
+  return NS_Atomize(nsDependentCString(aUTF8String));
 }
 
 already_AddRefed<nsIAtom>
-NS_NewAtom(const nsACString& aUTF8String)
+NS_Atomize(const nsACString& aUTF8String)
 {
   uint32_t hash;
   AtomTableEntry* he = GetAtomHashEntry(aUTF8String.Data(),
@@ -644,13 +637,13 @@ NS_NewAtom(const nsACString& aUTF8String)
 }
 
 already_AddRefed<nsIAtom>
-NS_NewAtom(const char16_t* aUTF16String)
+NS_Atomize(const char16_t* aUTF16String)
 {
-  return NS_NewAtom(nsDependentString(aUTF16String));
+  return NS_Atomize(nsDependentString(aUTF16String));
 }
 
 already_AddRefed<nsIAtom>
-NS_NewAtom(const nsAString& aUTF16String)
+NS_Atomize(const nsAString& aUTF16String)
 {
   uint32_t hash;
   AtomTableEntry* he = GetAtomHashEntry(aUTF16String.Data(),
@@ -667,28 +660,6 @@ NS_NewAtom(const nsAString& aUTF16String)
   he->mAtom = atom;
 
   return atom.forget();
-}
-
-nsIAtom*
-NS_NewPermanentAtom(const nsAString& aUTF16String)
-{
-  uint32_t hash;
-  AtomTableEntry* he = GetAtomHashEntry(aUTF16String.Data(),
-                                        aUTF16String.Length(),
-                                        &hash);
-
-  AtomImpl* atom = he->mAtom;
-  if (atom) {
-    if (!atom->IsPermanent()) {
-      PromoteToPermanent(atom);
-    }
-  } else {
-    atom = new PermanentAtomImpl(aUTF16String, hash);
-    he->mAtom = atom;
-  }
-
-  // No need to addref since permanent atoms aren't refcounted anyway
-  return atom;
 }
 
 nsrefcnt
