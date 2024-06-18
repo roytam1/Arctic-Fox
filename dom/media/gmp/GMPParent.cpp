@@ -23,6 +23,10 @@
 #endif
 #include "GMPContentParent.h"
 
+#ifdef XP_WIN
+#include "WMFDecoderModule.h"
+#endif
+
 #include "mozilla/dom/CrashReporterParent.h"
 using mozilla::dom::CrashReporterParent;
 using mozilla::ipc::GeckoChildProcessHost;
