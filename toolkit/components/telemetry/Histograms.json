@@ -7574,7 +7574,7 @@
     "expires_in_version": "never",
     "kind": "enumerated",
     "n_values": 13,
-    "description": "Screen resolution of DevTools user (0:lower, 1:800x600, 2:1024x768, 3:1280x800, 4:1280x1024, 5:1366x768, 6:1440x900, 7:1920x1080, 8:2560×1440, 9:2560×1600, 10:2880x1800, 11:other, 12:higher)"
+    "description": "Screen resolution of DevTools user (0:lower, 1:800x600, 2:1024x768, 3:1280x800, 4:1280x1024, 5:1366x768, 6:1440x900, 7:1920x1080, 8:2560x1440, 9:2560x1600, 10:2880x1800, 11:other, 12:higher)"
   },
   "DEVTOOLS_TABS_OPEN_PEAK_LINEAR": {
     "expires_in_version": "never",
@@ -9669,14 +9669,6 @@
     "kind": "linear",
     "high": 100,
     "n_buckets": 20,
-    "description": "Proportion (%) of reschedulings of the main process to another CPU during the execution of code inside a JS compartment. Updated while we are measuring jank."
-  },
-  "PERF_MONITORING_TEST_CPU_RESCHEDULING_PROPORTION_MOVED": {
-    "alert_emails": ["dteller@mozilla.com"],
-    "expires_in_version": "44",
-    "kind": "linear",
-    "high": "100",
-    "n_buckets": "20",
     "description": "Proportion (%) of reschedulings of the main process to another CPU during the execution of code inside a JS compartment. Updated while we are measuring jank."
   },
   "PERF_MONITORING_SLOW_ADDON_JANK_US": {
