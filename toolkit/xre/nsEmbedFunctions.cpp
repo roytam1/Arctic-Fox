@@ -605,7 +605,7 @@ XRE_InitChildProcess(int aArgc,
         return NS_ERROR_FAILURE;
       }
 
-#if defined(XP_WIN) || defined(XP_MACOSX)
+#if 0//defined(XP_WIN) || defined(XP_MACOSX)
       CrashReporter::InitChildProcessTmpDir();
 #endif
 
