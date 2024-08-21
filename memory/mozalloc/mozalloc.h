@@ -76,19 +76,19 @@ extern "C" {
  */
 
 MFBT_API void* moz_xmalloc(size_t size)
-    MOZ_ALLOCATOR MOZ_WARN_UNUSED_RESULT;
+    MOZ_ALLOCATOR MOZ_MUST_USE;
 
 MFBT_API void* moz_xcalloc(size_t nmemb, size_t size)
-    MOZ_ALLOCATOR MOZ_WARN_UNUSED_RESULT;
+    MOZ_ALLOCATOR MOZ_MUST_USE;
 
 MFBT_API void* moz_xrealloc(void* ptr, size_t size)
-    MOZ_ALLOCATOR MOZ_WARN_UNUSED_RESULT;
+    MOZ_ALLOCATOR MOZ_MUST_USE;
 
 MFBT_API char* moz_xstrdup(const char* str)
-    MOZ_ALLOCATOR MOZ_WARN_UNUSED_RESULT;
+    MOZ_ALLOCATOR MOZ_MUST_USE;
 
 MFBT_API char* moz_strdup(const char* str)
-    MOZ_ALLOCATOR MOZ_WARN_UNUSED_RESULT;
+    MOZ_ALLOCATOR MOZ_MUST_USE;
 
 MFBT_API size_t moz_malloc_usable_size(void *ptr);
 
@@ -96,10 +96,10 @@ MFBT_API size_t moz_malloc_size_of(const void *ptr);
 
 #if defined(HAVE_STRNDUP)
 MFBT_API char* moz_xstrndup(const char* str, size_t strsize)
-    MOZ_ALLOCATOR MOZ_WARN_UNUSED_RESULT;
+    MOZ_ALLOCATOR MOZ_MUST_USE;
 
 MFBT_API char* moz_strndup(const char* str, size_t strsize)
-    MOZ_ALLOCATOR MOZ_WARN_UNUSED_RESULT;
+    MOZ_ALLOCATOR MOZ_MUST_USE;
 #endif /* if defined(HAVE_STRNDUP) */
 
 
@@ -114,19 +114,19 @@ int moz_posix_memalign(void **ptr, size_t alignment, size_t size);
 
 #if defined(HAVE_MEMALIGN)
 MFBT_API void* moz_xmemalign(size_t boundary, size_t size)
-    MOZ_ALLOCATOR MOZ_WARN_UNUSED_RESULT;
+    MOZ_ALLOCATOR MOZ_MUST_USE;
 
 MFBT_API void* moz_memalign(size_t boundary, size_t size)
-    MOZ_ALLOCATOR MOZ_WARN_UNUSED_RESULT;
+    MOZ_ALLOCATOR MOZ_MUST_USE;
 #endif /* if defined(HAVE_MEMALIGN) */
 
 
 #if defined(HAVE_VALLOC)
 MFBT_API void* moz_xvalloc(size_t size)
-    MOZ_ALLOCATOR MOZ_WARN_UNUSED_RESULT;
+    MOZ_ALLOCATOR MOZ_MUST_USE;
 
 MFBT_API void* moz_valloc(size_t size)
-    MOZ_ALLOCATOR MOZ_WARN_UNUSED_RESULT;
+    MOZ_ALLOCATOR MOZ_MUST_USE;
 #endif /* if defined(HAVE_VALLOC) */
 
 
