@@ -63,6 +63,8 @@
 // for the last one, where the handle type is |void|. See below.
 
 #include "mozilla/Assertions.h"
+#include "mozilla/Move.h"
+#include "mozilla/TypeTraits.h"
 
 namespace mozilla {
 
@@ -119,8 +121,13 @@ public:
   // Default copy/move construction and assignment.
   NotNull(const NotNull<T>&) = default;
   NotNull<T>& operator=(const NotNull<T>&) = default;
-  NotNull(NotNull<T>&&) = default;
-  NotNull<T>& operator=(NotNull<T>&&) = default;
+  NotNull(NotNull<T>&& aOther) : mBasePtr(Move(aOther.get())) {}
+  NotNull<T>& operator=(NotNull<T>&& aRhs) {
+    MOZ_ASSERT(&aRhs != this, "self-move-assignment not allowed");
+    this->~NotNull();
+    new(this) NotNull(Move(aRhs));
+    return *this;
+  }
 
   // Disallow null checks, which are unnecessary for this type.
   explicit operator bool() const = delete;
@@ -134,7 +141,7 @@ public:
 
   // Dereference operators.
   const T& operator->() const { return get(); }
-  decltype(*mBasePtr) operator*() const { return *mBasePtr; }
+  decltype(*DeclVal<T>()) operator*() const { return *mBasePtr; }
 };
 
 template <typename T>
