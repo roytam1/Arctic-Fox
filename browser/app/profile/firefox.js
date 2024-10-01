@@ -97,9 +97,6 @@ pref("browser.getdevtools.url","https://addons.palemoon.org/extensions/web-devel
 // Feedback URL
 pref("browser.feedback.url", "https://forums.macrumors.com/threads/arctic-fox-web-browser-for-10-6-64bit.2133051/");
 
-// Help button in slow startup dialog
-pref("browser.slowstartup.help.url", "http://www.palemoon.org/support/slowstartup.shtml");
-
 // Whether to escape to a content-less page if a user presses "Get me out of here"
 // on a network error page (e.g. cert error)
 pref("browser.escape_to_blank", false);
@@ -1466,6 +1463,10 @@ pref("dom.ipc.reportProcessHangs", false);
 #else
 pref("dom.ipc.reportProcessHangs", true);
 #endif
+
+// On desktop, we want the URLs to be included here for ease of debugging,
+// and because (normally) these errors are not persisted anywhere.
+pref("reader.errors.includeURLs", true);
 
 pref("view_source.tab", true);
 
