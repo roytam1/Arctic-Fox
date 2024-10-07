@@ -1,3 +1,5 @@
+/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
+/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 // Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
@@ -55,13 +57,12 @@ class Pickle {
   // is writable and will be freed when this Pickle is destroyed.
   Pickle(const char* data, int data_len, Ownership ownership = BORROWS);
 
-  // Initializes a Pickle as a deep copy of another Pickle.
-  Pickle(const Pickle& other);
+  Pickle(const Pickle& other) = delete;
 
   Pickle(Pickle&& other);
 
   // Performs a deep copy.
-  Pickle& operator=(const Pickle& other);
+  Pickle& operator=(const Pickle& other) = delete;
 
   Pickle& operator=(Pickle&& other);
 
@@ -100,7 +101,7 @@ class Pickle {
   MOZ_MUST_USE bool ReadWString(void** iter, std::wstring* result) const;
   MOZ_MUST_USE bool ReadData(void** iter, const char** data, int* length) const;
   MOZ_MUST_USE bool ReadBytes(void** iter, const char** data, int length,
-					uint32_t alignment = sizeof(memberAlignmentType)) const;
+                              uint32_t alignment = sizeof(memberAlignmentType)) const;
 
   // Safer version of ReadInt() checks for the result not being negative.
   // Use it for reading the object sizes.
@@ -175,18 +176,6 @@ class Pickle {
   // The returned pointer will only be valid until the next write operation
   // on this Pickle.
   char* BeginWriteData(int length);
-
-  // For Pickles which contain variable length buffers (e.g. those created
-  // with BeginWriteData), the Pickle can
-  // be 'trimmed' if the amount of data required is less than originally
-  // requested.  For example, you may have created a buffer with 10K of data,
-  // but decided to only fill 10 bytes of that data.  Use this function
-  // to trim the buffer so that we don't send 9990 bytes of unused data.
-  // You cannot increase the size of the variable buffer; only shrink it.
-  // This function assumes that the length of the variable buffer has
-  // not been changed.
-  void TrimWriteData(int length);
-
   void EndRead(void* iter) const {
     DCHECK(iter == end_of_payload());
   }
@@ -266,7 +255,7 @@ class Pickle {
   template<uint32_t alignment> struct ConstantAligner {
     static uint32_t align(int bytes) {
       static_assert((alignment & (alignment - 1)) == 0,
-			"alignment must be a power of two");
+                    "alignment must be a power of two");
       return (bytes + (alignment - 1)) & ~static_cast<uint32_t>(alignment - 1);
     }
   };

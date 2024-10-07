@@ -1,3 +1,5 @@
+/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
+/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 // Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
@@ -143,16 +145,6 @@ Pickle::Pickle(const char* data, int data_len, Ownership ownership)
     header_ = nullptr;
 }
 
-Pickle::Pickle(const Pickle& other)
-    : header_(NULL),
-      header_size_(other.header_size_),
-      capacity_(0),
-      variable_buffer_offset_(other.variable_buffer_offset_) {
-  uint32_t payload_size = header_size_ + other.header_->payload_size;
-  Resize(payload_size);
-  memcpy(header_, other.header_, payload_size);
-}
-
 Pickle::Pickle(Pickle&& other)
   : header_(other.header_),
     header_size_(other.header_size_),
@@ -166,18 +158,6 @@ Pickle::Pickle(Pickle&& other)
 Pickle::~Pickle() {
   if (capacity_ != kCapacityReadOnly)
     free(header_);
-}
-
-Pickle& Pickle::operator=(const Pickle& other) {
-  if (header_size_ != other.header_size_ && capacity_ != kCapacityReadOnly) {
-    free(header_);
-    header_ = NULL;
-    header_size_ = other.header_size_;
-  }
-  Resize(other.header_size_ + other.header_->payload_size);
-  memcpy(header_, other.header_, header_size_ + other.header_->payload_size);
-  variable_buffer_offset_ = other.variable_buffer_offset_;
-  return *this;
 }
 
 Pickle& Pickle::operator=(Pickle&& other) {
@@ -540,7 +520,7 @@ void Pickle::EndWrite(char* dest, int length) {
   // memory.
   if (length % sizeof(memberAlignmentType))
     memset(dest + length, 0,
-	   sizeof(memberAlignmentType) - (length % sizeof(memberAlignmentType)));
+           sizeof(memberAlignmentType) - (length % sizeof(memberAlignmentType)));
 }
 
 bool Pickle::WriteBytes(const void* data, int data_len, uint32_t alignment) {
@@ -597,23 +577,6 @@ char* Pickle::BeginWriteData(int length) {
   return data_ptr;
 }
 
-void Pickle::TrimWriteData(int new_length) {
-  DCHECK(variable_buffer_offset_ != 0);
-
-  // Fetch the the variable buffer size
-  int* cur_length = reinterpret_cast<int*>(
-      reinterpret_cast<char*>(header_) + variable_buffer_offset_);
-
-  if (new_length < 0 || new_length > *cur_length) {
-    NOTREACHED() << "Invalid length in TrimWriteData.";
-    return;
-  }
-
-  // Update the payload size and variable buffer size
-  header_->payload_size -= (*cur_length - new_length);
-  *cur_length = new_length;
-}
-
 void Pickle::Resize(uint32_t new_capacity) {
   new_capacity = ConstantAligner<kPayloadUnit>::align(new_capacity);
 
@@ -645,8 +608,8 @@ const char* Pickle::FindNext(uint32_t header_size,
 
 // static
 uint32_t Pickle::GetLength(uint32_t header_size,
-			   const char* start,
-			   const char* end) {
+                           const char* start,
+                           const char* end) {
   DCHECK(header_size == AlignInt(header_size));
   DCHECK(header_size <= static_cast<memberAlignmentType>(kPayloadUnit));
 

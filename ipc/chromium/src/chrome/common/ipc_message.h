@@ -1,3 +1,5 @@
+/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
+/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 // Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
@@ -77,9 +79,9 @@ class Message : public Pickle {
   // the buffer is writable and will be freed when the message is destroyed.
   Message(const char* data, int data_len, Ownership ownership = BORROWS);
 
-  Message(const Message& other);
+  Message(const Message& other) = delete;
   Message(Message&& other);
-  Message& operator=(const Message& other);
+  Message& operator=(const Message& other) = delete;
   Message& operator=(Message&& other);
 
   PriorityValue priority() const {
