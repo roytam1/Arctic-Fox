@@ -184,7 +184,7 @@ KeyboardEvent::CharCode()
 {
   // If this event is initialized with ctor, we shouldn't check event type.
   if (mInitializedByCtor) {
-    return mEvent->AsKeyboardEvent()->charCode;
+    return mEvent->AsKeyboardEvent()->mCharCode;
   }
 
   switch (mEvent->mMessage) {
@@ -198,7 +198,8 @@ KeyboardEvent::CharCode()
   case eAfterKeyUp:
     return 0;
   case eKeyPress:
-    return mEvent->AsKeyboardEvent()->charCode;
+  case eAccessKeyNotFound:
+    return mEvent->AsKeyboardEvent()->mCharCode;
   default:
     break;
   }
@@ -274,7 +275,7 @@ KeyboardEvent::GetLocation(uint32_t* aLocation)
 uint32_t
 KeyboardEvent::Location()
 {
-  return mEvent->AsKeyboardEvent()->location;
+  return mEvent->AsKeyboardEvent()->mLocation;
 }
 
 // static
@@ -309,7 +310,7 @@ KeyboardEvent::InitWithKeyboardEventInit(EventTarget* aOwner,
   mInitializedWhichValue = aParam.mWhich;
 
   WidgetKeyboardEvent* internalEvent = mEvent->AsKeyboardEvent();
-  internalEvent->location = aParam.mLocation;
+  internalEvent->mLocation = aParam.mLocation;
   internalEvent->mIsRepeat = aParam.mRepeat;
   internalEvent->mIsComposing = aParam.mIsComposing;
   internalEvent->mKeyNameIndex =
@@ -341,7 +342,7 @@ KeyboardEvent::InitKeyEvent(const nsAString& aType,
   WidgetKeyboardEvent* keyEvent = mEvent->AsKeyboardEvent();
   keyEvent->InitBasicModifiers(aCtrlKey, aAltKey, aShiftKey, aMetaKey);
   keyEvent->mKeyCode = aKeyCode;
-  keyEvent->charCode = aCharCode;
+  keyEvent->mCharCode = aCharCode;
 
   return NS_OK;
 }

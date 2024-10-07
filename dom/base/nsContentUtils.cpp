@@ -7147,7 +7147,7 @@ nsContentUtils::GetHostOrIPv6WithBrackets(nsIURI* aURI, nsAString& aHost)
   return NS_OK;
 }
 
-void
+bool
 nsContentUtils::CallOnAllRemoteChildren(nsIMessageBroadcaster* aManager,
                                         CallOnRemoteChildFunction aCallback,
                                         void* aArg)
@@ -7163,7 +7163,9 @@ nsContentUtils::CallOnAllRemoteChildren(nsIMessageBroadcaster* aManager,
 
     nsCOMPtr<nsIMessageBroadcaster> nonLeafMM = do_QueryInterface(childMM);
     if (nonLeafMM) {
-      CallOnAllRemoteChildren(nonLeafMM, aCallback, aArg);
+      if (CallOnAllRemoteChildren(nonLeafMM, aCallback, aArg)) {
+        return true;
+      }
       continue;
     }
 
@@ -7175,10 +7177,14 @@ nsContentUtils::CallOnAllRemoteChildren(nsIMessageBroadcaster* aManager,
       nsFrameLoader* fl = static_cast<nsFrameLoader*>(cb);
       TabParent* remote = TabParent::GetFrom(fl);
       if (remote && aCallback) {
-        aCallback(remote, aArg);
+        if (aCallback(remote, aArg)) {
+          return true;
+        }
       }
     }
   }
+
+  return false;
 }
 
 void
@@ -7666,10 +7672,10 @@ nsContentUtils::SendKeyEvent(nsIWidget* aWidget,
 
   if (msg == eKeyPress) {
     event.mKeyCode = aCharCode ? 0 : aKeyCode;
-    event.charCode = aCharCode;
+    event.mCharCode = aCharCode;
   } else {
     event.mKeyCode = aKeyCode;
-    event.charCode = 0;
+    event.mCharCode = 0;
   }
 
   uint32_t locationFlag = (aAdditionalFlags &
@@ -7677,16 +7683,16 @@ nsContentUtils::SendKeyEvent(nsIWidget* aWidget,
      nsIDOMWindowUtils::KEY_FLAG_LOCATION_RIGHT | nsIDOMWindowUtils::KEY_FLAG_LOCATION_NUMPAD));
   switch (locationFlag) {
     case nsIDOMWindowUtils::KEY_FLAG_LOCATION_STANDARD:
-      event.location = nsIDOMKeyEvent::DOM_KEY_LOCATION_STANDARD;
+      event.mLocation = nsIDOMKeyEvent::DOM_KEY_LOCATION_STANDARD;
       break;
     case nsIDOMWindowUtils::KEY_FLAG_LOCATION_LEFT:
-      event.location = nsIDOMKeyEvent::DOM_KEY_LOCATION_LEFT;
+      event.mLocation = nsIDOMKeyEvent::DOM_KEY_LOCATION_LEFT;
       break;
     case nsIDOMWindowUtils::KEY_FLAG_LOCATION_RIGHT:
-      event.location = nsIDOMKeyEvent::DOM_KEY_LOCATION_RIGHT;
+      event.mLocation = nsIDOMKeyEvent::DOM_KEY_LOCATION_RIGHT;
       break;
     case nsIDOMWindowUtils::KEY_FLAG_LOCATION_NUMPAD:
-      event.location = nsIDOMKeyEvent::DOM_KEY_LOCATION_NUMPAD;
+      event.mLocation = nsIDOMKeyEvent::DOM_KEY_LOCATION_NUMPAD;
       break;
     default:
       if (locationFlag != 0) {
@@ -7710,16 +7716,16 @@ nsContentUtils::SendKeyEvent(nsIWidget* aWidget,
         case nsIDOMKeyEvent::DOM_VK_SUBTRACT:
         case nsIDOMKeyEvent::DOM_VK_DECIMAL:
         case nsIDOMKeyEvent::DOM_VK_DIVIDE:
-          event.location = nsIDOMKeyEvent::DOM_KEY_LOCATION_NUMPAD;
+          event.mLocation = nsIDOMKeyEvent::DOM_KEY_LOCATION_NUMPAD;
           break;
         case nsIDOMKeyEvent::DOM_VK_SHIFT:
         case nsIDOMKeyEvent::DOM_VK_CONTROL:
         case nsIDOMKeyEvent::DOM_VK_ALT:
         case nsIDOMKeyEvent::DOM_VK_META:
-          event.location = nsIDOMKeyEvent::DOM_KEY_LOCATION_LEFT;
+          event.mLocation = nsIDOMKeyEvent::DOM_KEY_LOCATION_LEFT;
           break;
         default:
-          event.location = nsIDOMKeyEvent::DOM_KEY_LOCATION_STANDARD;
+          event.mLocation = nsIDOMKeyEvent::DOM_KEY_LOCATION_STANDARD;
           break;
       }
       break;
