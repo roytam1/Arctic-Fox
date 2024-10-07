@@ -7665,10 +7665,10 @@ nsContentUtils::SendKeyEvent(nsIWidget* aWidget,
   event.mModifiers = GetWidgetModifiers(aModifiers);
 
   if (msg == eKeyPress) {
-    event.keyCode = aCharCode ? 0 : aKeyCode;
+    event.mKeyCode = aCharCode ? 0 : aKeyCode;
     event.charCode = aCharCode;
   } else {
-    event.keyCode = aKeyCode;
+    event.mKeyCode = aKeyCode;
     event.charCode = 0;
   }
 
@@ -7799,7 +7799,7 @@ nsContentUtils::SendMouseEvent(nsCOMPtr<nsIPresShell> aPresShell,
   event.buttons = GetButtonsFlagForButton(aButton);
   event.pressure = aPressure;
   event.inputSource = aInputSourceArg;
-  event.clickCount = aClickCount;
+  event.mClickCount = aClickCount;
   event.mTime = PR_IntervalNow();
   event.mFlags.mIsSynthesizedForTests = aIsSynthesized;
 
@@ -7808,7 +7808,7 @@ nsContentUtils::SendMouseEvent(nsCOMPtr<nsIPresShell> aPresShell,
     return NS_ERROR_FAILURE;
 
   event.mRefPoint = ToWidgetPoint(CSSPoint(aX, aY), offset, presContext);
-  event.ignoreRootScrollFrame = aIgnoreRootScrollFrame;
+  event.mIgnoreRootScrollFrame = aIgnoreRootScrollFrame;
 
   nsEventStatus status = nsEventStatus_eIgnore;
   if (aToWindow) {

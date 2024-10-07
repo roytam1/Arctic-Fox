@@ -230,29 +230,31 @@ struct ParamTraits<mozilla::WidgetMouseEvent>
   static void Write(Message* aMsg, const paramType& aParam)
   {
     WriteParam(aMsg, static_cast<mozilla::WidgetMouseEventBase>(aParam));
-    WriteParam(aMsg, aParam.ignoreRootScrollFrame);
-    WriteParam(aMsg, (uint8_t) aParam.reason);
-    WriteParam(aMsg, (uint8_t) aParam.context);
-    WriteParam(aMsg, (uint8_t) aParam.exit);
-    WriteParam(aMsg, aParam.clickCount);
+    WriteParam(aMsg, aParam.mIgnoreRootScrollFrame);
+    WriteParam(aMsg, static_cast<paramType::ReasonType>(aParam.mReason));
+    WriteParam(aMsg, static_cast<paramType::ContextMenuTriggerType>(
+                       aParam.mContextMenuTrigger));
+    WriteParam(aMsg, static_cast<paramType::ExitFromType>(aParam.mExitFrom));
+    WriteParam(aMsg, aParam.mClickCount);
   }
 
   static bool Read(const Message* aMsg, void** aIter, paramType* aResult)
   {
     bool rv;
-    uint8_t reason = 0, context = 0, exit = 0;
+    paramType::ReasonType reason = 0;
+    paramType::ContextMenuTriggerType contextMenuTrigger = 0;
+    paramType::ExitFromType exitFrom = 0;
     rv = ReadParam(aMsg, aIter,
                    static_cast<mozilla::WidgetMouseEventBase*>(aResult)) &&
-         ReadParam(aMsg, aIter, &aResult->ignoreRootScrollFrame) &&
+         ReadParam(aMsg, aIter, &aResult->mIgnoreRootScrollFrame) &&
          ReadParam(aMsg, aIter, &reason) &&
-         ReadParam(aMsg, aIter, &context) &&
-         ReadParam(aMsg, aIter, &exit) &&
-         ReadParam(aMsg, aIter, &aResult->clickCount);
-    aResult->reason =
-      static_cast<mozilla::WidgetMouseEvent::reasonType>(reason);
-    aResult->context =
-      static_cast<mozilla::WidgetMouseEvent::contextType>(context);
-    aResult->exit = static_cast<mozilla::WidgetMouseEvent::exitType>(exit);
+         ReadParam(aMsg, aIter, &contextMenuTrigger) &&
+         ReadParam(aMsg, aIter, &exitFrom) &&
+         ReadParam(aMsg, aIter, &aResult->mClickCount);
+    aResult->mReason = static_cast<paramType::Reason>(reason);
+    aResult->mContextMenuTrigger =
+      static_cast<paramType::ContextMenuTrigger>(contextMenuTrigger);
+    aResult->mExitFrom = static_cast<paramType::ExitFrom>(exitFrom);
     return rv;
   }
 };
@@ -392,7 +394,7 @@ struct ParamTraits<mozilla::WidgetKeyboardEvent>
     WriteParam(aMsg, static_cast<uint32_t>(aParam.mCodeNameIndex));
     WriteParam(aMsg, aParam.mKeyValue);
     WriteParam(aMsg, aParam.mCodeValue);
-    WriteParam(aMsg, aParam.keyCode);
+    WriteParam(aMsg, aParam.mKeyCode);
     WriteParam(aMsg, aParam.charCode);
     WriteParam(aMsg, aParam.mPseudoCharCode);
     WriteParam(aMsg, aParam.alternativeCharCodes);
@@ -427,7 +429,7 @@ struct ParamTraits<mozilla::WidgetKeyboardEvent>
         ReadParam(aMsg, aIter, &codeNameIndex) &&
         ReadParam(aMsg, aIter, &aResult->mKeyValue) &&
         ReadParam(aMsg, aIter, &aResult->mCodeValue) &&
-        ReadParam(aMsg, aIter, &aResult->keyCode) &&
+        ReadParam(aMsg, aIter, &aResult->mKeyCode) &&
         ReadParam(aMsg, aIter, &aResult->charCode) &&
         ReadParam(aMsg, aIter, &aResult->mPseudoCharCode) &&
         ReadParam(aMsg, aIter, &aResult->alternativeCharCodes) &&

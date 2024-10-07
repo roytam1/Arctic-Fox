@@ -354,7 +354,6 @@ NO_PKG_FILES += \
 	certutil* \
 	pk12util* \
 	BadCertServer* \
-	ClientAuthServer* \
 	OCSPStaplingServer* \
 	GenerateOCSPResponse* \
 	chrome/chrome.rdf \
