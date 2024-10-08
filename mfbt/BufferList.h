@@ -44,8 +44,19 @@ class BufferList : private AllocPolicy
     Segment(const Segment&) = delete;
     Segment& operator=(const Segment&) = delete;
 
-    Segment(Segment&&) = default;
-    Segment& operator=(Segment&&) = default;
+    Segment(Segment&& aOther)
+     : mData(Move(aOther.mData)),
+       mSize(Move(aOther.mSize)),
+       mCapacity(Move(aOther.mCapacity))
+    {
+    }
+
+    Segment& operator=(Segment&& aRhs) {
+      MOZ_ASSERT(&aRhs != this, "self-move-assignment not allowed");
+      this->~Segment();
+      new(this) Segment(Move(aRhs));
+      return *this;
+    }
 
     char* Start() const { return mData; }
     char* End() const { return mData + mSize; }
