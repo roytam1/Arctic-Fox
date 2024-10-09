@@ -1109,6 +1109,9 @@ HelperThread::handleGCParallelWorkload()
     MOZ_ASSERT(HelperThreadState().canStartGCParallelTask());
     MOZ_ASSERT(idle());
 
+    TraceLoggerThread* logger = TraceLoggerForCurrentThread();
+    AutoTraceLog logCompile(logger, TraceLogger_GC);
+
     currentTask.emplace(HelperThreadState().gcParallelWorklist().popCopy());
     gcParallelTask()->runFromHelperThread();
     currentTask.reset();
@@ -1365,6 +1368,10 @@ HelperThread::handleWasmWorkload()
     wasm::IonCompileTask* task = wasmTask();
     {
         AutoUnlockHelperThreadState unlock;
+
+        TraceLoggerThread* logger = TraceLoggerForCurrentThread();
+        AutoTraceLog logCompile(logger, TraceLogger_WasmCompilation);
+
         PerThreadData::AutoEnterRuntime enter(threadData.ptr(), task->runtime());
         success = wasm::IonCompileFunction(task);
     }
@@ -1407,15 +1414,16 @@ HelperThread::handleIonWorkload()
     currentTask.emplace(builder);
     builder->setPauseFlag(&pause);
 
-    TraceLoggerThread* logger = TraceLoggerForCurrentThread();
-    TraceLoggerEvent event(logger, TraceLogger_AnnotateScripts, builder->script());
-    AutoTraceLog logScript(logger, event);
-    AutoTraceLog logCompile(logger, TraceLogger_IonCompilation);
-
     JSRuntime* rt = builder->script()->compartment()->runtimeFromAnyThread();
 
     {
         AutoUnlockHelperThreadState unlock;
+
+        TraceLoggerThread* logger = TraceLoggerForCurrentThread();
+        TraceLoggerEvent event(logger, TraceLogger_AnnotateScripts, builder->script());
+        AutoTraceLog logScript(logger, event);
+        AutoTraceLog logCompile(logger, TraceLogger_IonCompilation);
+
         PerThreadData::AutoEnterRuntime enter(threadData.ptr(),
                                               builder->script()->runtimeFromAnyThread());
         jit::JitContext jctx(jit::CompileRuntime::get(rt),
@@ -1570,6 +1578,10 @@ HelperThread::handleCompressionWorkload()
 
     {
         AutoUnlockHelperThreadState unlock;
+
+        TraceLoggerThread* logger = TraceLoggerForCurrentThread();
+        AutoTraceLog logCompile(logger, TraceLogger_CompressSource);
+
         task->result = task->work();
     }
 
