@@ -17,6 +17,10 @@
 #include "jit/InlineList.h"
 #include "jit/Ion.h"
 
+#if defined(_MSC_VER) && _MSC_VER < 1900
+#define noexcept 
+#endif
+
 namespace js {
 namespace jit {
 
